@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"  // MUDE de "sqlite" para "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model usuarios {
+  id         Int      @id @default(autoincrement())
+  nome       String
+  email      String   @unique
+  senha_hash String
+  papel      String   @default("USUARIO")
+  ativo      Boolean  @default(true)
+  criado_em  DateTime @default(now())
+  
+  @@map("usuarios")
+}
+
+model redes {
+  id        Int      @id @default(autoincrement())
+  cor       String   @unique
+  descricao String?
+  ativo     Boolean  @default(true)
+  criado_em DateTime @default(now())
+  
+  celulas celulas[]
+  
+  @@map("redes")
+}
+
+model celulas {
+  id           Int      @id @default(autoincrement())
+  nome         String
+  lider        String
+  telefone     String?
+  endereco     String?
+  ativo        Boolean  @default(true)
+  criado_em    DateTime @default(now())
+  
+  rede_id      Int
+  rede         redes    @relation(fields: [rede_id], references: [id])
+  
+  recebimentos recebimentos[]
+  
+  @@map("celulas")
+}
+
+model categorias {
+  id        Int      @id @default(autoincrement())
+  nome      String   @unique
+  descricao String?
+  cor       String?
+  ativo     Boolean  @default(true)
+  criado_em DateTime @default(now())
+  
+  produtos produtos[]
+  
+  @@map("categorias")
+}
+
+model produtos {
+  id           Int      @id @default(autoincrement())
+  nome         String
+  unidade      String   @default("kg")
+  ativo        Boolean  @default(true)
+  criado_em    DateTime @default(now())
+  
+  categoria_id Int
+  categoria    categorias @relation(fields: [categoria_id], references: [id])
+  
+  recebimentos recebimentos[]
+  estoque      estoque[]
+  
+  @@map("produtos")
+}
+
+model recebimentos {
+  id           Int      @id @default(autoincrement())
+  quantidade   Float
+  observacoes  String?
+  data_chegada DateTime @default(now())
+  criado_em    DateTime @default(now())
+  
+  celula_id    Int
+  celula       celulas  @relation(fields: [celula_id], references: [id])
+  
+  produto_id   Int
+  produto      produtos @relation(fields: [produto_id], references: [id])
+  
+  @@map("recebimentos")
+}
+
+model estoque {
+  id                 Int      @id @default(autoincrement())
+  quantidade_atual   Float    @default(0)
+  quantidade_minima  Float    @default(0)
+  localizacao        String?
+  atualizado_em      DateTime @updatedAt
+  criado_em          DateTime @default(now())
+  
+  produto_id         Int      @unique
+  produto            produtos @relation(fields: [produto_id], references: [id])
+  
+  @@map("estoque")
+}
