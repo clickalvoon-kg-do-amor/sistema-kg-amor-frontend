@@ -38,7 +38,7 @@ export default function App() {
 
   return (
     <Router>
-      <Routes>
+      <Router basename="/sistema-kg-amor-frontend">
         {/* Rota pública */}
         <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
 
