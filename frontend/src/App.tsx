@@ -13,7 +13,6 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // pega sessão atual
     const run = async () => {
       const { data } = await supabase.auth.getSession();
       setSession(data.session ? { user: data.session.user } : null);
@@ -21,7 +20,6 @@ export default function App() {
     };
     run();
 
-    // ouve mudanças de auth
     const { data: sub } = supabase.auth.onAuthStateChange((_evt, sess) => {
       setSession(sess ? { user: sess.user } : null);
     });
@@ -37,12 +35,9 @@ export default function App() {
   }
 
   return (
-    <Router>
-      <Router basename="/sistema-kg-amor-frontend">
-        {/* Rota pública */}
+    <Router basename={import.meta.env.MODE === "production" ? "/sistema-kg-amor-frontend" : "/"}>
+      <Routes>
         <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
-
-        {/* Rotas protegidas com layout padrão */}
         <Route
           path="/"
           element={
@@ -56,7 +51,6 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="celulas" element={<Celulas />} />
           <Route path="recebimentos" element={<Recebimentos />} />
-          {/* fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
