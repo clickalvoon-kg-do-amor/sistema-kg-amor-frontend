@@ -230,37 +230,176 @@ export default function Dashboard() {
       </div>
 
       {/* listas / rankings */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <RankingBox title="TOP 15 - SUPERVISÃO" data={topSupervisao} />
-        <RankingBox title="TOP 15 CÉLULAS" data={topCelulas} />
-        <RankingBox title="RANKING DE REDE" data={rankingRedes} />
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-12">
+        <div className="lg:col-span-4">
+          <RankingBox title="TOP 15 - SUPERVISÃO" data={topSupervisao} />
+        </div>
+        <div className="lg:col-span-5">
+          <RankingBox title="TOP 15 CÉLULAS" data={topCelulas} />
+        </div>
+        <div className="lg:col-span-3">
+          <RankingBox title="RANKING DE REDE" data={rankingRedes} />
+        </div>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-6">
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <h3 className="mb-2 text-lg font-semibold text-slate-800">Recebimentos Recentes</h3>
-          <div className="text-sm text-slate-500">
-            Carregando...
+      {/* gráficos */}
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-5">
+        {/* Gráfico de Pizza - Distribuição por Redes */}
+        <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-4">
+          <h3 className="mb-2 text-lg font-semibold text-slate-800">Distribuição por Redes</h3>
+          <div className="flex items-center gap-4">
+            <div className="flex-shrink-0">
+              <svg width="140" height="140" viewBox="0 0 140 140" className="transform -rotate-90">
+                {rankingRedes.length > 0 ? (() => {
+                  const total = rankingRedes.reduce((sum, [, kg]) => sum + kg, 0);
+                  let currentAngle = 0;
+                  
+                  // Mapeamento de cores por rede
+                  const coresRede: { [key: string]: string } = {
+                    'BRANCA': '#FFFFFF',
+                    'BRANCO': '#FFFFFF', 
+                    'AMARELA': '#FFEB3B',
+                    'AMARELO': '#FFEB3B',
+                    'VERMELHA': '#F44336',
+                    'VERMELHO': '#F44336',
+                    'VERDE': '#4CAF50',
+                    'AZUL': '#2196F3',
+                    'MARROM': '#8D6E63',
+                    'ROXA': '#9C27B0',
+                    'ROXO': '#9C27B0'
+                  };
+                  
+                  return rankingRedes.map(([cor, kg]) => {
+                    const percentage = (kg / total) * 100;
+                    const angle = (percentage / 100) * 360;
+                    const startAngle = currentAngle;
+                    const endAngle = currentAngle + angle;
+                    
+                    const startAngleRad = (startAngle * Math.PI) / 180;
+                    const endAngleRad = (endAngle * Math.PI) / 180;
+                    
+                    const largeArcFlag = angle > 180 ? 1 : 0;
+                    
+                    const x1 = 70 + 55 * Math.cos(startAngleRad);
+                    const y1 = 70 + 55 * Math.sin(startAngleRad);
+                    const x2 = 70 + 55 * Math.cos(endAngleRad);
+                    const y2 = 70 + 55 * Math.sin(endAngleRad);
+                    
+                    const pathData = [
+                      `M 70 70`,
+                      `L ${x1} ${y1}`,
+                      `A 55 55 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+                      'Z'
+                    ].join(' ');
+                    
+                    currentAngle += angle;
+                    
+                    const corFinal = coresRede[cor.toUpperCase()] || '#64748b';
+                    
+                    return (
+                      <g key={cor}>
+                        <path
+                          d={pathData}
+                          fill={corFinal}
+                          stroke={cor.toUpperCase() === 'BRANCA' || cor.toUpperCase() === 'BRANCO' ? '#e2e8f0' : 'white'}
+                          strokeWidth="2"
+                        />
+                      </g>
+                    );
+                  });
+                })() : (
+                  <circle cx="70" cy="70" r="55" fill="#e2e8f0" stroke="#000000" strokeWidth="2" />
+                )}
+              </svg>
+            </div>
+            <div className="flex-1 space-y-1">
+              {rankingRedes.map(([cor, kg]) => {
+                const coresRede: { [key: string]: string } = {
+                  'BRANCA': '#FFFFFF',
+                  'BRANCO': '#FFFFFF', 
+                  'AMARELA': '#FFEB3B',
+                  'AMARELO': '#FFEB3B',
+                  'VERMELHA': '#F44336',
+                  'VERMELHO': '#F44336',
+                  'VERDE': '#4CAF50',
+                  'AZUL': '#2196F3',
+                  'MARROM': '#8D6E63',
+                  'ROXA': '#9C27B0',
+                  'ROXO': '#9C27B0'
+                };
+                
+                const total = rankingRedes.reduce((sum, [, weight]) => sum + weight, 0);
+                const percentage = total > 0 ? ((kg / total) * 100).toFixed(1) : '0';
+                const corFinal = coresRede[cor.toUpperCase()] || '#64748b';
+                
+                return (
+                  <div key={cor} className="flex items-center gap-2 text-xs">
+                    <div 
+                      className="w-3 h-3 rounded-full border"
+                      style={{ 
+                        backgroundColor: corFinal,
+                        borderColor: cor.toUpperCase() === 'BRANCA' || cor.toUpperCase() === 'BRANCO' ? '#e2e8f0' : 'transparent'
+                      }}
+                    ></div>
+                    <span className="flex-1 font-medium">{cor}</span>
+                    <span className="font-semibold">{percentage}%</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
 
-        {/* aqui ficam seus gráficos (Apex/Recharts) usando 'filtradas' como base */}
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <h3 className="mb-2 text-lg font-semibold text-slate-800">Gráfico por Mês</h3>
-          <div className="text-sm text-slate-500">
-            Em dados.
+        {/* Gráfico de Barras - Top 15 Supervisões */}
+        <div className="lg:col-span-3 rounded-xl border border-slate-200 bg-white p-4">
+          <h3 className="mb-2 text-lg font-semibold text-slate-800">Top 15 Supervisões</h3>
+          <div className="h-52 flex items-end justify-between gap-1 px-1">
+            {topSupervisao.slice(0, 15).map(([nome, kg], index) => {
+              const maxKg = Math.max(...topSupervisao.slice(0, 15).map(([, weight]) => weight));
+              const height = maxKg > 0 ? (kg / maxKg) * 180 : 0;
+              
+              // Buscar a cor da rede do supervisor (assumindo que o nome do supervisor está nas células)
+              const supervisorCelulas = filtradas.filter(c => c.supervisores.toUpperCase() === nome.toUpperCase());
+              const corRede = supervisorCelulas.length > 0 ? supervisorCelulas[0].redes?.cor : null;
+              
+              const coresRede: { [key: string]: string } = {
+                'BRANCA': '#FFFFFF',
+                'BRANCO': '#FFFFFF', 
+                'AMARELA': '#FFEB3B',
+                'AMARELO': '#FFEB3B',
+                'VERMELHA': '#F44336',
+                'VERMELHO': '#F44336',
+                'VERDE': '#4CAF50',
+                'AZUL': '#2196F3',
+                'MARROM': '#8D6E63',
+                'ROXA': '#9C27B0',
+                'ROXO': '#9C27B0'
+              };
+              
+              const corFinal = corRede ? (coresRede[corRede.toUpperCase()] || '#64748b') : '#64748b';
+              
+              return (
+                <div key={nome} className="flex flex-col items-center group relative">
+                  <div
+                    className="w-6 transition-all duration-200 group-hover:opacity-80 rounded-t border-2 border-black"
+                    style={{ 
+                      height: `${height}px`, 
+                      backgroundColor: corFinal
+                    }}
+                  ></div>
+                  <div className="mt-1 text-xs font-bold text-slate-700">
+                    {index + 1}º
+                  </div>
+                  <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-8 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                    <div className="font-medium">{nome}</div>
+                    <div>{formatPt(kg)} kg</div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <h3 className="mb-2 text-lg font-semibold text-slate-800">Distribuição por Rede</h3>
-          <div className="text-sm text-slate-500">
-            {rankingRedes.map(([cor, kg]) => (
-              <div key={cor} className="flex justify-between py-1">
-                <span className="font-medium">{cor}</span>
-                <span>{formatPt(kg)} kg</span>
-              </div>
-            ))}
+          <div className="mt-2 text-xs text-slate-500 text-center">
+            Passe o mouse sobre as barras para ver detalhes
           </div>
         </div>
       </div>
