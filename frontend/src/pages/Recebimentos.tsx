@@ -4,52 +4,8 @@ import {
   AlertTriangle, CheckCircle, ShoppingCart, FileText, BarChart3,
   Calendar, User, Search, ChevronDown, ChevronUp, Download
 } from 'lucide-react';
-
-// Mock expandido com categorias
-const MOCK_CATEGORIAS = [
-  { id: 1, nome: 'GRÃOS E CEREAIS', cor: '#8B4513' },
-  { id: 2, nome: 'CARNES E PROTEÍNAS', cor: '#B22222' },
-  { id: 3, nome: 'LATICÍNIOS', cor: '#4169E1' },
-  { id: 4, nome: 'FRUTAS E VERDURAS', cor: '#32CD32' },
-  { id: 5, nome: 'DOCES E BEBIDAS', cor: '#FF6347' },
-  { id: 6, nome: 'HIGIENE E LIMPEZA', cor: '#9370DB' },
-  { id: 7, nome: 'OUTROS', cor: '#708090' }
-];
-
-const MOCK_PRODUTOS = [
-  { id: 1, nome: 'Arroz 5kg', categoria_id: 1, categoria: 'GRÃOS E CEREAIS', codigo_barras: '7891234567890' },
-  { id: 2, nome: 'Feijão Preto 1kg', categoria_id: 1, categoria: 'GRÃOS E CEREAIS', codigo_barras: '7891234567891' },
-  { id: 3, nome: 'Açúcar Cristal 1kg', categoria_id: 5, categoria: 'DOCES E BEBIDAS', codigo_barras: '7891234567892' },
-  { id: 4, nome: 'Óleo de Soja 900ml', categoria_id: 7, categoria: 'OUTROS', codigo_barras: '7891234567893' },
-  { id: 5, nome: 'Frango Inteiro', categoria_id: 2, categoria: 'CARNES E PROTEÍNAS' },
-  { id: 6, nome: 'Leite Integral 1L', categoria_id: 3, categoria: 'LATICÍNIOS' },
-  { id: 7, nome: 'Banana Prata', categoria_id: 4, categoria: 'FRUTAS E VERDURAS' },
-  { id: 8, nome: 'Sabão em Pó 1kg', categoria_id: 6, categoria: 'HIGIENE E LIMPEZA' }
-];
-
-const MOCK_RECEBIMENTOS = [
-  {
-    id: 1,
-    data: '2025-09-08',
-    origem: 'Célula Centro',
-    itens: [
-      { produto: 'Arroz 5kg', quantidade: 10, unidade: 'kg', validade: '2025-12-15', prioridade: 'normal' },
-      { produto: 'Feijão Preto 1kg', quantidade: 5, unidade: 'kg', validade: '2025-11-20', prioridade: 'imediato' }
-    ],
-    status: 'concluído',
-    observacoes: 'Recebimento da campanha de setembro'
-  },
-  {
-    id: 2,
-    data: '2025-09-07',
-    origem: 'Célula Norte',
-    itens: [
-      { produto: 'Açúcar Cristal 1kg', quantidade: 8, unidade: 'kg', validade: '2026-01-10', prioridade: 'normal' }
-    ],
-    status: 'concluído',
-    observacoes: ''
-  }
-];
+import { supabase } from '../lib/supabaseClient';
+import toast from 'react-hot-toast';
 
 // Interfaces
 interface Categoria {
@@ -90,8 +46,8 @@ interface Receipt {
 
 export default function RecebimentosPage() {
   const [recebimentos, setRecebimentos] = useState<Receipt[]>([]);
-  const [produtos, setProdutos] = useState(MOCK_PRODUTOS);
-  const [categorias] = useState(MOCK_CATEGORIAS);
+  const [produtos, setProdutos] = useState([]);
+  const [categorias, setCategorias] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'manual' | 'scanner'>('manual');
@@ -138,11 +94,44 @@ export default function RecebimentosPage() {
     carregarDados();
   }, []);
 
+  // SUBSTITUIR esta função:
   const carregarDados = async () => {
     try {
+      // Carregar recebimentos com joins
+      const { data: recebimentosData, error: recError } = await supabase
+        .from('recebimentos')
+        .select(`
+          *,
+          produtos(id, nome, categoria_id, categorias(nome, cor)),
+          celulas(id, nome, lider, telefone, endereco, redes(cor))
+        `)
+        .order('created_at', { ascending: false });
+
+      if (recError) throw recError;
+
+      // Carregar produtos
+      const { data: produtosData, error: prodError } = await supabase
+        .from('produtos')
+        .select('*, categorias(nome, cor)')
+        .order('nome');
+
+      if (prodError) throw prodError;
+
+      // Carregar categorias
+      const { data: categoriasData, error: catError } = await supabase
+        .from('categorias')
+        .select('*')
+        .order('nome');
+
+      if (catError) throw catError;
+
+      setRecebimentos(recebimentosData || []);
+      setProdutos(produtosData || []);
+      setCategorias(categoriasData || []);
       setLoading(false);
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
+      toast.error('Erro ao carregar dados');
       setLoading(false);
     }
   };
@@ -386,6 +375,7 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
     alert('Relatório gerado e baixado com sucesso!');
   };
 
+  // SUBSTITUIR esta função:
   const salvarRecebimento = async () => {
     if (items.length === 0) {
       alert('Adicione pelo menos um item');
@@ -393,31 +383,49 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
     }
 
     try {
-      const novoRecebimento: Receipt = {
-        id: Date.now(),
-        origin: formData.origin || 'Recebimento Padrão',
-        notes: formData.notes,
-        status: 'posted',
-        created_at: new Date().toISOString(),
-        created_by: 'Usuário Atual',
-        items: items
-      };
+      // Salvar o recebimento principal
+      const { data: novoRecebimento, error: recError } = await supabase
+        .from('recebimentos')
+        .insert([{
+          origem: formData.origin || 'Recebimento Padrão',
+          observacoes: formData.notes || null,
+          status: 'concluido',
+          data_recebimento: new Date().toISOString().split('T')[0]
+        }])
+        .select()
+        .single();
 
-      // Adicionar ao histórico real
-      setRecebimentos(prev => [novoRecebimento, ...prev]);
+      if (recError) throw recError;
 
-      console.log('Recebimento salvo:', novoRecebimento);
+      // Salvar os itens do recebimento
+      const itensParaSalvar = items.map(item => ({
+        recebimento_id: novoRecebimento.id,
+        produto_id: item.produto_id,
+        quantidade: item.quantity,
+        unidade: item.unit,
+        data_validade: item.expires_at || null,
+        prioridade: item.priority
+      }));
+
+      const { error: itensError } = await supabase
+        .from('recebimento_itens')
+        .insert(itensParaSalvar);
+
+      if (itensError) throw itensError;
+
+      // Recarregar dados
+      carregarDados();
       
       setFormData({ origin: '', notes: '' });
       setItems([]);
       setIsModalOpen(false);
       setEditingItemIndex(null);
       
-      alert('Recebimento salvo com sucesso!');
+      toast.success('Recebimento salvo com sucesso!');
       
     } catch (error) {
       console.error('Erro ao salvar:', error);
-      alert('Erro ao salvar recebimento');
+      toast.error('Erro ao salvar recebimento');
     }
   };
 
