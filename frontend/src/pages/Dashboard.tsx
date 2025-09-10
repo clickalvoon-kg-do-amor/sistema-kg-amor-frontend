@@ -200,70 +200,10 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* listas / rankings */}
-      <div className="grid gap-6 lg:grid-cols-10">
-        <div className="lg:col-span-3">
-          <RankingBox title="TOP 15 - SUPERVISÃO" data={topSupervisao} />
-        </div>
-        <div className="lg:col-span-4">
-          <RankingBox title="TOP 15 CÉLULAS" data={topCelulas} />
-        </div>
-        <div className="lg:col-span-3">
-          <RankingBox title="RANKING DE REDE" data={rankingRedes} />
-        </div>
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <h3 className="mb-2 text-lg font-semibold text-slate-800">Recebimentos Recentes</h3>
+        <p className="text-slate-500">Nenhum recebimento registrado ainda.</p>
       </div>
-
-      {/* aqui ficam seus gráficos (Apex/Recharts) usando 'filtradas' como base */}
-      {/* ... */}
-      {loading && (
-        <div className="text-sm text-slate-500">
-          Carregando…
-        </div>
-      )}
-    </div>
-  );
-}
-
-type RankingBoxProps = {
-  title: string;
-  data: [string, number][];
-};
-
-function RankingBox({ title, data }: RankingBoxProps) {
-  // se quiser manter um formatador único, use esse helper:
-  const fmtKg = (v: number) =>
-    `${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg`;
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <h3 className="mb-3 text-lg font-semibold text-slate-800">{title}</h3>
-
-      <ol className="space-y-1">
-        {data.map(([nome, total], i) => (
-          <li key={i} className="flex items-baseline justify-between gap-3">
-            {/* bloco do nome (com índice e ellipsis) */}
-            <div className="min-w-0 flex-1">
-              <span className="font-bold text-slate-800">{i + 1}.</span>{' '}
-              <span
-                className="truncate align-baseline text-slate-700"
-                title={nome}
-              >
-                {nome}
-              </span>
-            </div>
-
-            {/* bloco do valor (sempre numa linha, à direita) */}
-            <span className="whitespace-nowrap font-semibold text-indigo-600">
-              {fmtKg(total)}
-            </span>
-          </li>
-        ))}
-
-        {/* estado vazio (opcional) */}
-        {data.length === 0 && (
-          <li className="text-sm text-slate-500">Sem dados para exibir.</li>
-        )}
-      </ol>
     </div>
   );
 }
