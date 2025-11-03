@@ -1,6 +1,6 @@
 // frontend/src/pages/Celulas.tsx
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Edit2, Save, X, Users, UserCheck, Palette, Weight, Trash2, Calendar, EyeOff } from 'lucide-react';
+import { Plus, Edit2, Save, X, Users, UserCheck, Palette, Weight, Trash2, Calendar, EyeOff, Box } from 'lucide-react'; // Importa Box para o ícone
 import { supabase } from '../lib/supabaseClient';
 
 // --- COMPONENTE DE TOAST ---
@@ -37,6 +37,7 @@ interface Celula {
   telefone?: string;
   endereco?: string;
   quantidade_kg: number;
+  quantidade_itens: number; // <-- ADICIONADO AQUI
   ativo: boolean;
   criado_em?: string;
   redes?: Rede;
@@ -49,6 +50,7 @@ interface FormData {
   telefone: string;
   endereco: string;
   quantidade_kg: number;
+  quantidade_itens: number; // <-- ADICIONADO AQUI
 }
 
 export default function CelulasPage() {
@@ -81,7 +83,8 @@ export default function CelulasPage() {
     rede_id: '',
     telefone: '',
     endereco: '',
-    quantidade_kg: 0
+    quantidade_kg: 0,
+    quantidade_itens: 0 // <-- ADICIONADO AQUI
   });
 
   // Função para mostrar toast
@@ -102,6 +105,7 @@ export default function CelulasPage() {
       if (redesError) throw redesError;
       setRedes(redesData || []);
       
+      // Ajuste para selecionar quantidade_itens da tabela celulas
       const { data: celulasData, error: celulasError } = await supabase
         .from('celulas')
         .select(`*, redes (id, cor, hex)`)
@@ -121,7 +125,9 @@ export default function CelulasPage() {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: name === 'quantidade_kg' ? parseFloat(value) || 0 : value
+      // Converte para float para kg, para int para itens, caso contrário string
+      [name]: name === 'quantidade_kg' ? parseFloat(value) || 0 :
+              name === 'quantidade_itens' ? parseInt(value) || 0 : value
     }));
   };
 
@@ -137,17 +143,19 @@ export default function CelulasPage() {
         telefone: formData.telefone || null,
         endereco: formData.endereco || null,
         quantidade_kg: formData.quantidade_kg,
+        quantidade_itens: formData.quantidade_itens, // <-- ADICIONADO AQUI
         ativo: true
       };
 
       if (editingCelula) {
         // --- INÍCIO DA NOVA LÓGICA DE AJUSTE ---
         
-        // 1. Verifica se o KG foi alterado manualmente no modal de Edição
+        // 1. Verifica se o KG ou os ITENS foram alterados manualmente no modal de Edição
         const kgMudou = Number(editingCelula.quantidade_kg) !== Number(formData.quantidade_kg);
+        const itensMudou = Number(editingCelula.quantidade_itens) !== Number(formData.quantidade_itens); // <-- VERIFICA ITENS
 
-        if (kgMudou) {
-          // Se o KG mudou, o usuário está fazendo um AJUSTE DE SALDO.
+        if (kgMudou || itensMudou) { // <-- Verifica se KG OU ITENS mudaram
+          // Se o KG ou ITENS mudaram, o usuário está fazendo um AJUSTE DE SALDO.
           
           // 2. Apaga todo o histórico antigo daquela célula
           const { error: deleteError } = await supabase
@@ -162,18 +170,18 @@ export default function CelulasPage() {
             .from('historico_kg')
             .insert([{
               celula_id: editingCelula.id,
-              quantidade: formData.quantidade_kg, // O novo valor total
-              quantidade_itens: 1, // Um ajuste é considerado "1 item"
+              quantidade: formData.quantidade_kg, // O novo valor total de KG
+              quantidade_itens: formData.quantidade_itens, // <-- O novo valor total de ITENS
               data_chegada: new Date().toISOString(), // Data do ajuste
-              observacoes: `Ajuste manual de saldo para ${formData.quantidade_kg} kg.`
+              observacoes: `Ajuste manual de saldo: ${formData.quantidade_kg} kg e ${formData.quantidade_itens} itens.` // <-- OBS. ATUALIZADA
             }]);
             
           if (insertError) throw new Error("Falha ao inserir novo histórico: " + insertError.message);
 
-          // 4. Atualiza a tabela 'celulas' com os dados (nome, lideres, e o novo KG)
+          // 4. Atualiza a tabela 'celulas' com os dados (nome, lideres, e os novos KG/ITENS)
           const { error: updateError } = await supabase
             .from('celulas')
-            .update(dadosParaSalvar) // 'dadosParaSalvar' já tem o novo KG
+            .update(dadosParaSalvar) // 'dadosParaSalvar' já tem o novo KG e ITENS
             .eq('id', editingCelula.id);
 
           if (updateError) throw updateError;
@@ -181,7 +189,7 @@ export default function CelulasPage() {
           showToast('Célula atualizada e histórico ajustado!');
 
         } else {
-          // Se o KG não mudou (usuário só mudou nome, líder, etc)
+          // Se nem KG nem ITENS mudaram (usuário só mudou nome, líder, etc)
           // Apenas atualiza a tabela 'celulas' e não mexe no histórico
           const { error } = await supabase
             .from('celulas')
@@ -218,14 +226,15 @@ export default function CelulasPage() {
       rede_id: celula.rede_id.toString(),
       telefone: celula.telefone || '',
       endereco: celula.endereco || '',
-      quantidade_kg: celula.quantidade_kg
+      quantidade_kg: celula.quantidade_kg,
+      quantidade_itens: celula.quantidade_itens // <-- ADICIONADO AQUI
     });
     setEditingCelula(celula);
     setIsModalOpen(true);
   };
 
   const handleDelete = async (celulaId: number) => {
-    if (window.confirm('Tem certeza que deseja excluir esta célula?')) {
+    if (window.confirm('Tem certeza que deseja excluir esta célula? Isso apagará todo o histórico de doações associado a ela.')) {
       try {
         await supabase.from('historico_kg').delete().eq('celula_id', celulaId);
         
@@ -246,7 +255,7 @@ export default function CelulasPage() {
     setEditingCelula(null);
     setFormData({
       nome: '', lider: '', supervisores: '', rede_id: '',
-      telefone: '', endereco: '', quantidade_kg: 0
+      telefone: '', endereco: '', quantidade_kg: 0, quantidade_itens: 0 // <-- ADICIONADO AQUI
     });
   };
 
@@ -258,11 +267,14 @@ export default function CelulasPage() {
     const kgRecebido = Number(recebimentoKG || 0);
     const itensRecebidos = Number(recebimentoItens || 0); 
     
-    if (kgRecebido <= 0) return showToast('A quantidade de KG deve ser maior que zero.', true);
-    if (itensRecebidos <= 0) return showToast('A quantidade de Itens deve ser maior que zero.', true); 
+    if (kgRecebido <= 0 && itensRecebidos <= 0) return showToast('A quantidade de KG ou Itens deve ser maior que zero.', true);
+    // Permite que um dos dois seja zero, mas não ambos
+    if (kgRecebido < 0) return showToast('A quantidade de KG não pode ser negativa.', true);
+    if (itensRecebidos < 0) return showToast('A quantidade de Itens não pode ser negativa.', true);
 
     try {
-      const novaQuantidade = Number(selectedCelulaRecebimento.quantidade_kg) + kgRecebido;
+      const novaQuantidadeKG = Number(selectedCelulaRecebimento.quantidade_kg) + kgRecebido;
+      const novaQuantidadeItens = Number(selectedCelulaRecebimento.quantidade_itens) + itensRecebidos;
       
       // 1. Inserir o histórico na sua nova tabela
       const { error: historicoError } = await supabase
@@ -280,7 +292,10 @@ export default function CelulasPage() {
       // 2. Se o histórico funcionou, ATUALIZAR o saldo total da célula
       const { error: celulaError } = await supabase
         .from('celulas')
-        .update({ quantidade_kg: novaQuantidade })
+        .update({ 
+          quantidade_kg: novaQuantidadeKG,
+          quantidade_itens: novaQuantidadeItens // <-- ATUALIZA ITENS AQUI
+        })
         .eq('id', selectedCelulaRecebimento.id);
       
       if (celulaError) {
@@ -288,7 +303,7 @@ export default function CelulasPage() {
       }
 
       await carregarDados();
-      showToast(`Recebimento de ${kgRecebido} kg registrado!`);
+      showToast(`Recebimento de ${kgRecebido} kg e ${itensRecebidos} itens registrado!`);
       handleCloseRecebimentoModal();
       
     } catch (error: any) {
@@ -321,12 +336,13 @@ export default function CelulasPage() {
 
   const celulasVisiveis = useMemo(() => {
     if (ocultarZeradas) {
-      return celulas.filter(c => c.quantidade_kg > 0);
+      return celulas.filter(c => c.quantidade_kg > 0 || c.quantidade_itens > 0); // Filtra se ambos forem zero
     }
     return celulas;
   }, [celulas, ocultarZeradas]);
   
   const totalKG = celulas.reduce((total, celula) => total + Number(celula.quantidade_kg || 0), 0);
+  const totalItens = celulas.reduce((total, celula) => total + Number(celula.quantidade_itens || 0), 0); // Total de itens para o card
 
   if (loading) {
     return (
@@ -380,7 +396,7 @@ export default function CelulasPage() {
       </div>
 
       {/* Cards de Estatísticas */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6"> {/* Mudado para 4 colunas */}
         <div className="bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
           <div className="flex items-center justify-between">
             <div>
@@ -402,12 +418,21 @@ export default function CelulasPage() {
         <div className="bg-white p-6 rounded-lg shadow border-l-4 border-purple-500">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Média por Célula</p>
+              <p className="text-sm text-gray-600">Total de Itens</p> {/* Novo card de Itens */}
+              <p className="text-2xl font-bold text-gray-900">{totalItens}</p>
+            </div>
+            <Box className="text-purple-500" size={24} />
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow border-l-4 border-orange-500"> {/* Cor alterada para Laranja */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Média por Célula (KG)</p>
               <p className="text-2xl font-bold text-gray-900">
                 {celulas.length > 0 ? (totalKG / celulas.length).toFixed(1) : '0.0'} kg
               </p>
             </div>
-            <Users className="text-purple-500" size={24} />
+            <Weight className="text-orange-500" size={24} /> {/* Cor alterada */}
           </div>
         </div>
       </div>
@@ -421,7 +446,7 @@ export default function CelulasPage() {
             onChange={(e) => setOcultarZeradas(e.target.checked)}
             className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
           />
-          Ocultar Células Zeradas
+          Ocultar Células Zeradas (KG e Itens)
         </label>
       </div>
 
@@ -485,6 +510,14 @@ export default function CelulasPage() {
                     <span className="text-lg font-bold text-orange-600 ml-1">{celula.quantidade_kg} kg</span>
                   </div>
                 </div>
+                {/* CARD DE ITENS NA CÉLULA */}
+                <div className="flex items-center gap-2">
+                  <Box className="text-gray-500" size={16} />
+                  <div>
+                    <span className="font-medium text-gray-700">Itens:</span>
+                    <span className="text-lg font-bold text-purple-600 ml-1">{celula.quantidade_itens}</span>
+                  </div>
+                </div>
               </div>
             </div>
           );
@@ -493,7 +526,7 @@ export default function CelulasPage() {
           <div className="col-span-full text-center py-12">
             <EyeOff className="mx-auto text-gray-400 mb-4" size={48} />
             <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhuma célula com doação</h3>
-            <p className="text-gray-500 mb-4">Desmarque o filtro "Ocultar Células Zeradas" para ver todas as células.</p>
+            <p className="text-gray-500 mb-4">Desmarque o filtro "Ocultar Células Zeradas (KG e Itens)" para ver todas as células.</p>
           </div>
         )}
       </div>
@@ -567,13 +600,22 @@ export default function CelulasPage() {
                 />
               </div>
               <div>
-                {/* LINHA 492 - CORRIGIDA */}
                 <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de KG *</label>
                 <input
                   type="number" name="quantidade_kg" value={formData.quantidade_kg} onChange={handleInputChange}
                   min="0" step="0.1" required
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="0.0"
+                />
+              </div>
+              {/* --- CAMPO DE QUANTIDADE DE ITENS ADICIONADO AO MODAL DE EDIÇÃO --- */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de Itens *</label>
+                <input
+                  type="number" name="quantidade_itens" value={formData.quantidade_itens} onChange={handleInputChange}
+                  min="0" required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="0"
                 />
               </div>
               <div className="flex gap-3 pt-4">
@@ -660,6 +702,10 @@ export default function CelulasPage() {
                     <span className="font-medium text-gray-700">KG Atual:</span>
                     <span className="ml-1 text-orange-600 font-bold">{selectedCelulaRecebimento.quantidade_kg} kg</span>
                   </div>
+                  <div className="text-sm">
+                    <span className="font-medium text-gray-700">Itens Atuais:</span>
+                    <span className="ml-1 text-purple-600 font-bold">{selectedCelulaRecebimento.quantidade_itens}</span>
+                  </div>
                 </div>
               )}
               <div>
@@ -693,11 +739,11 @@ export default function CelulasPage() {
                       setRecebimentoItens(valor);
                     }
                   }}
-                  min="1" required
+                  min="0" required // Alterado para min="0" para permitir 0 itens se for só KG
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                   placeholder="1"
                   onFocus={(e) => e.target.value === '1' && setRecebimentoItens('')}
-                  onBlur={(e) => e.target.value === '' && setRecebimentoItens('1')}
+                  onBlur={(e) => e.target.value === '' && setRecebimentoItens('0')} // Agora pode ser 0 por padrão
                 />
               </div>
 
@@ -725,11 +771,17 @@ export default function CelulasPage() {
               </div>
               
               {selectedCelulaRecebimento && (
-                <div className="bg-green-50 p-3 rounded-lg">
+                <div className="bg-green-50 p-3 rounded-lg space-y-1">
                   <div className="text-sm">
-                    <span className="font-medium text-green-800">Novo Total (na Célula):</span>
+                    <span className="font-medium text-green-800">Novo Total (KG na Célula):</span>
                     <span className="ml-1 text-green-700 font-bold">
                       {(Number(selectedCelulaRecebimento.quantidade_kg) + Number(recebimentoKG || 0)).toFixed(1)} kg
+                    </span>
+                  </div>
+                  <div className="text-sm">
+                    <span className="font-medium text-green-800">Novo Total (Itens na Célula):</span>
+                    <span className="ml-1 text-green-700 font-bold">
+                      {(Number(selectedCelulaRecebimento.quantidade_itens) + Number(recebimentoItens || 0))}
                     </span>
                   </div>
                 </div>
