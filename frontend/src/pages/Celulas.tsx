@@ -491,7 +491,8 @@ export default function CelulasPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de KG *</L label>
+                {/* LINHA 492 - CORRIGIDA */}
+                <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de KG *</label>
                 <input
                   type="number" name="quantidade_kg" value={formData.quantidade_kg} onChange={handleInputChange}
                   min="0" step="0.1" required
