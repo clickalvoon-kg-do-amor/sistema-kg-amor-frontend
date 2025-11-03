@@ -59,19 +59,21 @@ export default function CelulasPage() {
   const [isRecebimentoModalOpen, setIsRecebimentoModalOpen] = useState(false);
   const [editingCelula, setEditingCelula] = useState<Celula | null>(null);
   const [selectedCelulaRecebimento, setSelectedCelulaRecebimento] = useState<Celula | null>(null);
+  
+  // Estados do Modal de Recebimento
   const [recebimentoKG, setRecebimentoKG] = useState<string>('0');
-  
+  const [recebimentoItens, setRecebimentoItens] = useState<string>('1'); // <-- NOVO ESTADO (default 1)
   const [dataChegada, setDataChegada] = useState(new Date().toISOString().split('T')[0]);
-  
-  // --- ADICIONADO PARA REQUEST 3 ---
   const [observacao, setObservacao] = useState('');
   
-  // --- ADICIONADO PARA REQUEST 2 ---
+  // Filtro
   const [ocultarZeradas, setOcultarZeradas] = useState(false);
 
+  // Toast
   const [toastMessage, setToastMessage] = useState('');
   const [isToastError, setIsToastError] = useState(false);
 
+  // Formulário de Célula
   const [formData, setFormData] = useState<FormData>({
     nome: '',
     lider: '',
@@ -173,10 +175,8 @@ export default function CelulasPage() {
   const handleDelete = async (celulaId: number) => {
     if (window.confirm('Tem certeza que deseja excluir esta célula?')) {
       try {
-        // Deletar o histórico primeiro
         await supabase.from('historico_kg').delete().eq('celula_id', celulaId);
         
-        // Depois marcar a célula como inativa
         const { error } = await supabase
           .from('celulas').update({ ativo: false }).eq('id', celulaId);
         if (error) throw error;
@@ -198,32 +198,32 @@ export default function CelulasPage() {
     });
   };
 
-  // --- FUNÇÃO DE RECEBIMENTO CORRIGIDA ---
-  // Agora salva o histórico na nova tabela 'historico_kg'
+  // --- FUNÇÃO DE RECEBIMENTO ATUALIZADA ---
   const handleRecebimentoSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCelulaRecebimento) return showToast('Selecione uma célula!', true);
     
     const kgRecebido = Number(recebimentoKG || 0);
-    if (kgRecebido <= 0) return showToast('A quantidade deve ser maior que zero.', true);
+    const itensRecebidos = Number(recebimentoItens || 0); // <-- NOVO VALOR
+    
+    if (kgRecebido <= 0) return showToast('A quantidade de KG deve ser maior que zero.', true);
+    if (itensRecebidos <= 0) return showToast('A quantidade de Itens deve ser maior que zero.', true); // <-- NOVA VALIDAÇÃO
 
     try {
       const novaQuantidade = Number(selectedCelulaRecebimento.quantidade_kg) + kgRecebido;
       
       // 1. Inserir o histórico na sua nova tabela
       const { error: historicoError } = await supabase
-        .from('historico_kg') // <--- SALVANDO NA TABELA CERTA
+        .from('historico_kg') 
         .insert([{
           celula_id: selectedCelulaRecebimento.id,
           quantidade: kgRecebido,
+          quantidade_itens: itensRecebidos, // <-- SALVANDO NOVO VALOR
           data_chegada: new Date(dataChegada).toISOString(),
-          observacoes: observacao || null // <-- SALVANDO OBSERVAÇÃO
+          observacoes: observacao || null 
         }]);
 
-      if (historicoError) {
-        // Se falhar aqui, não continuamos
-        throw historicoError;
-      }
+      if (historicoError) throw historicoError;
       
       // 2. Se o histórico funcionou, ATUALIZAR o saldo total da célula
       const { error: celulaError } = await supabase
@@ -232,7 +232,6 @@ export default function CelulasPage() {
         .eq('id', selectedCelulaRecebimento.id);
       
       if (celulaError) {
-        // Isso é ruim (histórico foi salvo mas saldo não), mas vamos avisar
         throw new Error("Histórico salvo, mas falha ao atualizar saldo da célula: " + celulaError.message);
       }
 
@@ -250,8 +249,9 @@ export default function CelulasPage() {
     setIsRecebimentoModalOpen(false);
     setSelectedCelulaRecebimento(null);
     setRecebimentoKG('0');
+    setRecebimentoItens('1'); // <-- RESETADO
     setDataChegada(new Date().toISOString().split('T')[0]);
-    setObservacao(''); // <-- Limpa observação
+    setObservacao(''); 
   };
 
   const handleRequestEdit = (celula: Celula) => {
@@ -267,7 +267,6 @@ export default function CelulasPage() {
     return rede || { cor: 'Indefinida', hex: '#6B7280' };
   };
 
-  // --- LÓGICA DO FILTRO DE OCULTAR ZERADAS (REQUEST 2) ---
   const celulasVisiveis = useMemo(() => {
     if (ocultarZeradas) {
       return celulas.filter(c => c.quantidade_kg > 0);
@@ -275,7 +274,6 @@ export default function CelulasPage() {
     return celulas;
   }, [celulas, ocultarZeradas]);
   
-  // Total de KG (Soma todas, independente do filtro)
   const totalKG = celulas.reduce((total, celula) => total + Number(celula.quantidade_kg || 0), 0);
 
   if (loading) {
@@ -329,13 +327,12 @@ export default function CelulasPage() {
         </div>
       </div>
 
-      {/* Cards de Estatísticas (Total de Células agora reflete o filtro) */}
+      {/* Cards de Estatísticas */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">Total de Células</p>
-              {/* --- ATUALIZADO PARA REQUEST 2 --- */}
               <p className="text-2xl font-bold text-gray-900">{celulasVisiveis.length}</p>
             </div>
             <Users className="text-blue-500" size={24} />
@@ -363,7 +360,7 @@ export default function CelulasPage() {
         </div>
       </div>
       
-      {/* --- CHECKBOX ADICIONADO (REQUEST 2) --- */}
+      {/* Checkbox "Ocultar Zeradas" */}
       <div className="flex justify-end mb-4">
         <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
           <input 
@@ -376,7 +373,7 @@ export default function CelulasPage() {
         </label>
       </div>
 
-      {/* Lista de Células (Agora usa 'celulasVisiveis') */}
+      {/* Lista de Células */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {celulasVisiveis.map((celula) => {
           const redeInfo = getRedeInfo(celula);
@@ -449,7 +446,7 @@ export default function CelulasPage() {
         )}
       </div>
 
-      {/* Modal de Cadastro/Edição (Sem alterações) */}
+      {/* Modal de Cadastro/Edição */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
@@ -547,7 +544,7 @@ export default function CelulasPage() {
         </div>
       )}
 
-      {/* Modal de Recebimento (Agora salva na tabela 'historico_kg') */}
+      {/* Modal de Recebimento (ATUALIZADO) */}
       {isRecebimentoModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
@@ -631,6 +628,27 @@ export default function CelulasPage() {
                   onBlur={(e) => e.target.value === '' && setRecebimentoKG('0')}
                 />
               </div>
+              
+              {/* --- CAMPO DE ITENS ADICIONADO --- */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de ITENS a Receber *</label>
+                <input
+                  type="text" inputMode="numeric"
+                  value={recebimentoItens}
+                  onChange={(e) => {
+                    const valor = e.target.value;
+                    if (valor === '' || /^[0-9]*$/.test(valor)) { // Apenas números inteiros
+                      setRecebimentoItens(valor);
+                    }
+                  }}
+                  min="1" required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="1"
+                  onFocus={(e) => e.target.value === '1' && setRecebimentoItens('')}
+                  onBlur={(e) => e.target.value === '' && setRecebimentoItens('1')}
+                />
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Data do Recebimento *</label>
                 <input
@@ -642,7 +660,7 @@ export default function CelulasPage() {
                 />
               </div>
 
-              {/* --- CAMPO DE OBSERVAÇÃO (REQUEST 3) --- */}
+              {/* --- CAMPO DE OBSERVAÇÃO --- */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
                 <textarea
