@@ -1,25 +1,30 @@
 // frontend/src/pages/Dashboard.tsx
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import * as XLSX from 'xlsx'; // <--- ADICIONADO
-import { Download } from 'lucide-react'; // <--- ADICIONADO
+import * as XLSX from 'xlsx'; // Importa a biblioteca de Excel
+import { Download } from 'lucide-react'; // Ícone para o botão
 
-// LÓGICA DE DADOS (LENDO DE CELULAS)
-type Celula = {
-  id: number;
-  nome: string;
-  lider: string; // Mudei de 'lider?' para 'lider' para bater com o seu arquivo original
-  supervisores: string;
-  quantidade_kg: number | null;
-  redes?: {
-    cor: string | null;
-  } | null;
+// LÓGICA DE DADOS (LENDO DO NOVO 'historico_kg')
+type HistoricoComCelula = {
+  quantidade: number;
+  data_chegada: string;
+  observacoes: string | null; // <-- CAMPO ADICIONADO
+  celulas: { // Dados da célula que fez o recebimento
+    id: number;
+    nome: string;
+    lider?: string | null;
+    supervisores: string;
+    redes?: {
+      cor: string | null;
+    } | null;
+  } | null; 
 };
 
 type Filtros = {
   rede: string;
   supervisao: string;
-  // Filtros de data removidos
+  dataIni: string; 
+  dataFim: string; 
 };
 
 type RankingBoxProps = {
@@ -27,9 +32,9 @@ type RankingBoxProps = {
   data: [string, number][];
 };
 
-// Formato com 2 casas decimais
+// Formato com 1 casa decimal (para KGs)
 const formatPt = (n: number) =>
-  new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(n);
 
 function RankingBox({ title, data }: RankingBoxProps) {
   return (
@@ -47,7 +52,7 @@ function RankingBox({ title, data }: RankingBoxProps) {
         ))}
         {data.length === 0 && (
           <div className="text-sm text-slate-400">
-            Nenhum dado encontrado.
+            Nenhum dado encontrado para os filtros selecionados.
           </div>
         )}
       </ol>
@@ -56,126 +61,173 @@ function RankingBox({ title, data }: RankingBoxProps) {
 }
 
 export default function Dashboard() {
-  const [todasCelulas, setTodasCelulas] = useState<Celula[]>([]);
+  const [todoHistorico, setTodoHistorico] = useState<HistoricoComCelula[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Filtros (sem data)
-  const [filtros, setFiltros] = useState({
+  // Filtros (datas começam vazias)
+  const [filtros, setFiltros] = useState<Filtros>({
     rede: 'Todas',
     supervisao: 'Todos',
+    dataIni: '',
+    dataFim: '',
   });
 
-  // Opções dos selects
+  // Opções dos selects (derivadas do histórico)
   const opcoesRede = useMemo(() => {
     const set = new Set<string>();
-    todasCelulas.forEach((c) => set.add((c.redes?.cor || 'Sem rede').toUpperCase()));
+    todoHistorico.forEach((r) => set.add((r.celulas?.redes?.cor || 'Sem rede').toUpperCase()));
     return ['Todas', ...Array.from(set).sort()];
-  }, [todasCelulas]);
+  }, [todoHistorico]);
 
   const opcoesSupervisao = useMemo(() => {
     const set = new Set<string>();
-    todasCelulas.forEach((c) => set.add((c.supervisores || 'N/D').toUpperCase()));
+    todoHistorico.forEach((r) => set.add((r.celulas?.supervisores || 'N/D').toUpperCase()));
     return ['Todos', ...Array.from(set).sort()];
-  }, [todasCelulas]);
+  }, [todoHistorico]);
 
-  // Carregamento inicial (lendo de CELULAS)
+  // Carregamento inicial (lendo de 'historico_kg')
   useEffect(() => {
     (async () => {
       setLoading(true);
       const { data, error } = await supabase
-        .from('celulas')
-        .select('id, nome, lider, supervisores, quantidade_kg, redes(cor)')
-        .eq('ativo', true); 
+        .from('historico_kg') // <--- LENDO DA TABELA CORRETA
+        .select(`
+          quantidade,
+          data_chegada,
+          observacoes, 
+          celulas (
+            id,
+            nome,
+            lider,
+            supervisores,
+            redes (cor)
+          )
+        `);
 
       if (error) {
-        console.error('Erro ao buscar células:', error);
-        setTodasCelulas([]);
+        console.error('Erro ao buscar histórico:', error);
+        setTodoHistorico([]);
       } else {
-        setTodasCelulas((data || []) as Celula[]);
+        setTodoHistorico((data || []) as HistoricoComCelula[]);
       }
       setLoading(false);
     })();
   }, []);
 
-  // Aplica filtros (sem data)
+  // Aplica filtros (COM A LÓGICA DE DATA CORRIGIDA)
   const filtradas = useMemo(() => {
-    let arr = [...todasCelulas]; // Começa com todas as células
+    let arr = [...todoHistorico];
 
     if (filtros.rede !== 'Todas') {
       const alvo = filtros.rede.toUpperCase();
-      arr = arr.filter((c) => (c.redes?.cor || 'Sem rede').toUpperCase() === alvo);
+      arr = arr.filter((r) => (r.celulas?.redes?.cor || 'Sem rede').toUpperCase() === alvo);
     }
 
     if (filtros.supervisao !== 'Todos') {
       const alvo = filtros.supervisao.toUpperCase();
-      arr = arr.filter((c) => (c.supervisores || '').toUpperCase() === alvo);
+      arr = arr.filter((r) => (r.celulas?.supervisores || '').toUpperCase() === alvo);
     }
-    return arr;
-  }, [todasCelulas, filtros]);
 
-  // ---- Métricas (lendo das células filtradas)
-  const totalCelulas = filtradas.length;
+    // AJUSTE: SÓ FILTRA POR DATA SE A DATA ESTIVER PREENCHIDA
+    if (filtros.dataIni) {
+      const dataIni = new Date(filtros.dataIni);
+      dataIni.setUTCHours(0, 0, 0, 0); // Início do dia
+      arr = arr.filter((r) => new Date(r.data_chegada) >= dataIni);
+    }
+    if (filtros.dataFim) {
+      const dataFim = new Date(filtros.dataFim);
+      dataFim.setUTCHours(23, 59, 59, 999); // Fim do dia
+      arr = arr.filter((r) => new Date(r.data_chegada) <= dataFim);
+    }
+
+    return arr;
+  }, [todoHistorico, filtros]);
+
+  // ---- Métricas (baseadas no histórico filtrado)
+  const celulasUnicas = useMemo(() => {
+    const set = new Set<number>();
+    filtradas.forEach((r) => {
+      if (r.celulas?.id) set.add(r.celulas.id);
+    });
+    return set;
+  }, [filtradas]);
+
+  const totalCelulas = celulasUnicas.size;
   const totalKg = useMemo(
-    () => filtradas.reduce((s, c) => s + (Number(c.quantidade_kg) || 0), 0),
+    () => filtradas.reduce((s, r) => s + (Number(r.quantidade) || 0), 0),
     [filtradas]
   );
-  const mediaKg = totalCelulas ? totalKg / totalCelulas : 0;
+  const mediaKg = totalCelulas > 0 ? totalKg / totalCelulas : 0;
   const alertas = 0;
 
-  // ---- Rankings (lendo das células filtradas)
+  // ---- Rankings (baseados no histórico filtrado)
   const topSupervisao = useMemo(() => {
     const mapa = new Map<string, number>();
-    filtradas.forEach((c) => {
-      const chave = (c.supervisores || 'N/D').toUpperCase();
-      const qtd = Number(c.quantidade_kg) || 0;
+    filtradas.forEach((r) => {
+      if (!r.celulas) return;
+      const chave = (r.celulas.supervisores || 'N/D').toUpperCase();
+      const qtd = Number(r.quantidade) || 0;
       mapa.set(chave, (mapa.get(chave) || 0) + qtd);
     });
     return Array.from(mapa.entries()).sort((a, b) => b[1] - a[1]).slice(0, 15);
   }, [filtradas]);
 
   const topCelulas = useMemo(() => {
-    return filtradas
-      .map((c) => [c.nome, Number(c.quantidade_kg) || 0] as [string, number])
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 15);
+    const mapa = new Map<string, number>();
+    filtradas.forEach((r) => {
+      if (!r.celulas) return;
+      const chave = r.celulas.nome;
+      const qtd = Number(r.quantidade) || 0;
+      mapa.set(chave, (mapa.get(chave) || 0) + qtd);
+    });
+    return Array.from(mapa.entries()).sort((a, b) => b[1] - a[1]).slice(0, 15);
   }, [filtradas]);
 
   const rankingRedes = useMemo(() => {
     const mapa = new Map<string, number>();
-    filtradas.forEach((c) => {
-      const cor = (c.redes?.cor || 'Sem rede').toUpperCase();
-      mapa.set(cor, (mapa.get(cor) || 0) + (Number(c.quantidade_kg) || 0));
+    filtradas.forEach((r) => {
+      if (!r.celulas?.redes) return;
+      const cor = (r.celulas.redes.cor || 'Sem rede').toUpperCase();
+      const qtd = Number(r.quantidade) || 0;
+      mapa.set(cor, (mapa.get(cor) || 0) + qtd);
     });
     return Array.from(mapa.entries()).sort((a, b) => b[1] - a[1]);
   }, [filtradas]);
 
-  
-  // --- FUNÇÃO ADICIONADA ---
+  // --- FUNÇÃO DE EXPORTAR PARA EXCEL (ATUALIZADA) ---
   const handleExportExcel = () => {
     // 1. Formatar dados para o Excel
-    // Usamos 'filtradas' para exportar o que o usuário está vendo na tela
-    const dadosParaExportar = filtradas.map(c => ({
-      'Célula': c.nome,
-      'Líderes': c.lider,
-      'Supervisores': c.supervisores,
-      'Rede': c.redes?.cor || 'N/D',
-      'KG Total': c.quantidade_kg || 0
+    const dataSupervisao = topSupervisao.map(([Supervisao, KG]) => ({ Supervisao, KG }));
+    const dataCelulas = topCelulas.map(([Celula, KG]) => ({ Celula, KG }));
+    const dataRedes = rankingRedes.map(([Rede, KG]) => ({ Rede, KG }));
+    
+    // Planilha extra com todos os lançamentos filtrados
+    const dataDetalhada = filtradas.map(r => ({
+      'Data': new Date(r.data_chegada).toLocaleDateString('pt-BR'),
+      'Celula': r.celulas?.nome || 'N/D',
+      'Supervisores': r.celulas?.supervisores || 'N/D',
+      'Rede': r.celulas?.redes?.cor || 'N/D',
+      'Quantidade_KG': r.quantidade,
+      'Observacoes': r.observacoes || '' // <-- COLUNA ADICIONADA
     }));
 
-    // 2. Criar a "planilha"
-    const ws = XLSX.utils.json_to_sheet(dadosParaExportar);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Células");
+    const wsSupervisao = XLSX.utils.json_to_sheet(dataSupervisao);
+    const wsCelulas = XLSX.utils.json_to_sheet(dataCelulas);
+    const wsRedes = XLSX.utils.json_to_sheet(dataRedes);
+    const wsDetalhada = XLSX.utils.json_to_sheet(dataDetalhada);
 
-    // 3. Baixar o arquivo
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, wsDetalhada, "Lançamentos Filtrados");
+    XLSX.utils.book_append_sheet(wb, wsSupervisao, "Top Supervisão");
+    XLSX.utils.book_append_sheet(wb, wsCelulas, "Top Células");
+    XLSX.utils.book_append_sheet(wb, wsRedes, "Ranking Redes");
+
     const dataHoje = new Date().toISOString().split('T')[0];
-    const nomeArquivo = `Relatorio_Celulas_${dataHoje}.xlsx`;
+    const nomeArquivo = `Relatorio_KG_do_Amor_${dataHoje}.xlsx`;
     XLSX.writeFile(wb, nomeArquivo);
   };
-  // --- FIM DA FUNÇÃO ---
 
-
-  // ---- UI (Design Original)
+  // ---- UI (COM DESIGN ORIGINAL RESTAURADO)
   return (
     <div className="space-y-6 p-6">
       {/* Título e Filtros */}
@@ -184,6 +236,7 @@ export default function Dashboard() {
           <span>📊</span> Dashboard
         </h2>
         
+        {/* Filtros */}
         <select
           className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
           value={filtros.rede}
@@ -198,8 +251,20 @@ export default function Dashboard() {
         >
           {opcoesSupervisao.map((s) => (<option key={s} value={s}>{s === 'Todos' ? 'SUPERVISÃO' : s}</option>))}
         </select>
-        
-        {/* --- BOTÃO ADICIONADO --- */}
+        <input
+          type="date"
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+          value={filtros.dataIni}
+          onChange={(e) => setFiltros((f) => ({ ...f, dataIni: e.target.value }))}
+        />
+        <input
+          type="date"
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+          value={filtros.dataFim}
+          onChange={(e) => setFiltros((f) => ({ ...f, dataFim: e.target.value }))}
+        />
+
+        {/* --- BOTÃO DE EXPORTAR --- */}
         <button
           onClick={handleExportExcel}
           className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
@@ -210,11 +275,11 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* Cards (Design Original) */}
+      {/* Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: 'Total de Células', value: totalCelulas.toString(), color: 'from-indigo-500 to-blue-500' },
-          { label: 'Total de KG', value: `${formatPt(totalKg)} kg`, color: 'from-emerald-500 to-teal-500' },
+          { label: 'Células com Doações', value: totalCelulas.toString(), color: 'from-indigo-500 to-blue-500' },
+          { label: 'Total de KG no Período', value: `${formatPt(totalKg)} kg`, color: 'from-emerald-500 to-teal-500' },
           { label: 'Média por Célula', value: `${formatPt(mediaKg)} kg`, color: 'from-amber-500 to-orange-500' },
           { label: 'Alertas', value: alertas.toString(), color: 'from-rose-500 to-pink-500' },
         ].map((c, i) => (
@@ -311,8 +376,8 @@ export default function Dashboard() {
             {topSupervisao.slice(0, 15).map(([nome, kg], index) => {
               const maxKg = Math.max(...topSupervisao.slice(0, 15).map(([, weight]) => weight));
               const height = maxKg > 0 ? (kg / maxKg) * 180 : 0;
-              const supervisorCelulas = filtradas.filter(c => c.supervisores.toUpperCase() === nome.toUpperCase());
-              const corRede = supervisorCelulas.length > 0 ? supervisorCelulas[0].redes?.cor : null;
+              const primeiroRecebimento = filtradas.find(r => r.celulas?.supervisores.toUpperCase() === nome.toUpperCase());
+              const corRede = primeiroRecebimento?.celulas?.redes?.cor;
               const coresRede: { [key: string]: string } = {
                 'BRANCA': '#E2E8F0', 'BRANCO': '#E2E8F0', 'AMARELA': '#FFEB3B', 'AMARELO': '#FFEB3B',
                 'VERMELHA': '#F44336', 'VERMELHO': '#F44336', 'VERDE': '#4CAF50', 'AZUL': '#2196F3',

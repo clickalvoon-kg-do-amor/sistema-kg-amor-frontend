@@ -1,6 +1,6 @@
 // frontend/src/pages/Celulas.tsx
-import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Save, X, Users, UserCheck, Palette, Weight, Trash2, Calendar } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, Edit2, Save, X, Users, UserCheck, Palette, Weight, Trash2, Calendar, EyeOff } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
 // --- COMPONENTE DE TOAST ---
@@ -61,9 +61,14 @@ export default function CelulasPage() {
   const [selectedCelulaRecebimento, setSelectedCelulaRecebimento] = useState<Celula | null>(null);
   const [recebimentoKG, setRecebimentoKG] = useState<string>('0');
   
-  // Campo de data continua aqui, pois é salvo no histórico
   const [dataChegada, setDataChegada] = useState(new Date().toISOString().split('T')[0]);
   
+  // --- ADICIONADO PARA REQUEST 3 ---
+  const [observacao, setObservacao] = useState('');
+  
+  // --- ADICIONADO PARA REQUEST 2 ---
+  const [ocultarZeradas, setOcultarZeradas] = useState(false);
+
   const [toastMessage, setToastMessage] = useState('');
   const [isToastError, setIsToastError] = useState(false);
 
@@ -168,7 +173,10 @@ export default function CelulasPage() {
   const handleDelete = async (celulaId: number) => {
     if (window.confirm('Tem certeza que deseja excluir esta célula?')) {
       try {
-        // Você pode querer adicionar lógica para deletar o histórico_kg também
+        // Deletar o histórico primeiro
+        await supabase.from('historico_kg').delete().eq('celula_id', celulaId);
+        
+        // Depois marcar a célula como inativa
         const { error } = await supabase
           .from('celulas').update({ ativo: false }).eq('id', celulaId);
         if (error) throw error;
@@ -208,7 +216,8 @@ export default function CelulasPage() {
         .insert([{
           celula_id: selectedCelulaRecebimento.id,
           quantidade: kgRecebido,
-          data_chegada: new Date(dataChegada).toISOString()
+          data_chegada: new Date(dataChegada).toISOString(),
+          observacoes: observacao || null // <-- SALVANDO OBSERVAÇÃO
         }]);
 
       if (historicoError) {
@@ -242,6 +251,7 @@ export default function CelulasPage() {
     setSelectedCelulaRecebimento(null);
     setRecebimentoKG('0');
     setDataChegada(new Date().toISOString().split('T')[0]);
+    setObservacao(''); // <-- Limpa observação
   };
 
   const handleRequestEdit = (celula: Celula) => {
@@ -257,6 +267,15 @@ export default function CelulasPage() {
     return rede || { cor: 'Indefinida', hex: '#6B7280' };
   };
 
+  // --- LÓGICA DO FILTRO DE OCULTAR ZERADAS (REQUEST 2) ---
+  const celulasVisiveis = useMemo(() => {
+    if (ocultarZeradas) {
+      return celulas.filter(c => c.quantidade_kg > 0);
+    }
+    return celulas;
+  }, [celulas, ocultarZeradas]);
+  
+  // Total de KG (Soma todas, independente do filtro)
   const totalKG = celulas.reduce((total, celula) => total + Number(celula.quantidade_kg || 0), 0);
 
   if (loading) {
@@ -310,13 +329,14 @@ export default function CelulasPage() {
         </div>
       </div>
 
-      {/* Cards de Estatísticas (Lê o Saldo Total da tabela 'celulas') */}
+      {/* Cards de Estatísticas (Total de Células agora reflete o filtro) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">Total de Células</p>
-              <p className="text-2xl font-bold text-gray-900">{celulas.length}</p>
+              {/* --- ATUALIZADO PARA REQUEST 2 --- */}
+              <p className="text-2xl font-bold text-gray-900">{celulasVisiveis.length}</p>
             </div>
             <Users className="text-blue-500" size={24} />
           </div>
@@ -342,10 +362,23 @@ export default function CelulasPage() {
           </div>
         </div>
       </div>
+      
+      {/* --- CHECKBOX ADICIONADO (REQUEST 2) --- */}
+      <div className="flex justify-end mb-4">
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+          <input 
+            type="checkbox"
+            checked={ocultarZeradas}
+            onChange={(e) => setOcultarZeradas(e.target.checked)}
+            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          Ocultar Células Zeradas
+        </label>
+      </div>
 
-      {/* Lista de Células (Lê o Saldo Total da tabela 'celulas') */}
+      {/* Lista de Células (Agora usa 'celulasVisiveis') */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {celulas.map((celula) => {
+        {celulasVisiveis.map((celula) => {
           const redeInfo = getRedeInfo(celula);
           return (
             <div key={celula.id} className="bg-white rounded-lg shadow-md p-6 border-t-4" style={{ borderTopColor: redeInfo.hex || '#6B7280' }}>
@@ -407,17 +440,11 @@ export default function CelulasPage() {
             </div>
           );
         })}
-        {celulas.length === 0 && (
+        {celulasVisiveis.length === 0 && (
           <div className="col-span-full text-center py-12">
-            <Users className="mx-auto text-gray-400 mb-4" size={48} />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhuma célula cadastrada</h3>
-            <p className="text-gray-500 mb-4">Comece criando sua primeira célula</p>
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
-            >
-              Criar Primeira Célula
-            </button>
+            <EyeOff className="mx-auto text-gray-400 mb-4" size={48} />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhuma célula com doação</h3>
+            <p className="text-gray-500 mb-4">Desmarque o filtro "Ocultar Células Zeradas" para ver todas as células.</p>
           </div>
         )}
       </div>
@@ -614,6 +641,19 @@ export default function CelulasPage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
+
+              {/* --- CAMPO DE OBSERVAÇÃO (REQUEST 3) --- */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
+                <textarea
+                  value={observacao}
+                  onChange={(e) => setObservacao(e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Ex: Produtos vencidos, pacote rasgado, etc."
+                />
+              </div>
+              
               {selectedCelulaRecebimento && (
                 <div className="bg-green-50 p-3 rounded-lg">
                   <div className="text-sm">
