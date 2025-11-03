@@ -7,8 +7,9 @@ import { Download } from 'lucide-react'; // Ícone para o botão
 // LÓGICA DE DADOS (LENDO DO NOVO 'historico_kg')
 type HistoricoComCelula = {
   quantidade: number;
+  quantidade_itens: number; // <-- CAMPO ADICIONADO
   data_chegada: string;
-  observacoes: string | null; // <-- CAMPO ADICIONADO
+  observacoes: string | null; 
   celulas: { // Dados da célula que fez o recebimento
     id: number;
     nome: string;
@@ -35,6 +36,11 @@ type RankingBoxProps = {
 // Formato com 1 casa decimal (para KGs)
 const formatPt = (n: number) =>
   new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(n);
+
+// NOVO FORMATO para números inteiros (Itens)
+const formatInt = (n: number) =>
+  new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+
 
 function RankingBox({ title, data }: RankingBoxProps) {
   return (
@@ -93,6 +99,7 @@ export default function Dashboard() {
         .from('historico_kg') // <--- LENDO DA TABELA CORRETA
         .select(`
           quantidade,
+          quantidade_itens, 
           data_chegada,
           observacoes, 
           celulas (
@@ -128,15 +135,14 @@ export default function Dashboard() {
       arr = arr.filter((r) => (r.celulas?.supervisores || '').toUpperCase() === alvo);
     }
 
-    // AJUSTE: SÓ FILTRA POR DATA SE A DATA ESTIVER PREENCHIDA
     if (filtros.dataIni) {
       const dataIni = new Date(filtros.dataIni);
-      dataIni.setUTCHours(0, 0, 0, 0); // Início do dia
+      dataIni.setUTCHours(0, 0, 0, 0); 
       arr = arr.filter((r) => new Date(r.data_chegada) >= dataIni);
     }
     if (filtros.dataFim) {
       const dataFim = new Date(filtros.dataFim);
-      dataFim.setUTCHours(23, 59, 59, 999); // Fim do dia
+      dataFim.setUTCHours(23, 59, 59, 999); 
       arr = arr.filter((r) => new Date(r.data_chegada) <= dataFim);
     }
 
@@ -158,7 +164,12 @@ export default function Dashboard() {
     [filtradas]
   );
   const mediaKg = totalCelulas > 0 ? totalKg / totalCelulas : 0;
-  const alertas = 0;
+  
+  // --- MÉTRICA ADICIONADA ---
+  const totalItens = useMemo(
+    () => filtradas.reduce((s, r) => s + (Number(r.quantidade_itens) || 0), 0),
+    [filtradas]
+  );
 
   // ---- Rankings (baseados no histórico filtrado)
   const topSupervisao = useMemo(() => {
@@ -196,19 +207,18 @@ export default function Dashboard() {
 
   // --- FUNÇÃO DE EXPORTAR PARA EXCEL (ATUALIZADA) ---
   const handleExportExcel = () => {
-    // 1. Formatar dados para o Excel
     const dataSupervisao = topSupervisao.map(([Supervisao, KG]) => ({ Supervisao, KG }));
     const dataCelulas = topCelulas.map(([Celula, KG]) => ({ Celula, KG }));
     const dataRedes = rankingRedes.map(([Rede, KG]) => ({ Rede, KG }));
     
-    // Planilha extra com todos os lançamentos filtrados
     const dataDetalhada = filtradas.map(r => ({
       'Data': new Date(r.data_chegada).toLocaleDateString('pt-BR'),
       'Celula': r.celulas?.nome || 'N/D',
       'Supervisores': r.celulas?.supervisores || 'N/D',
       'Rede': r.celulas?.redes?.cor || 'N/D',
       'Quantidade_KG': r.quantidade,
-      'Observacoes': r.observacoes || '' // <-- COLUNA ADICIONADA
+      'Quantidade_Itens': r.quantidade_itens || 0, // <-- COLUNA ADICIONADA
+      'Observacoes': r.observacoes || '' 
     }));
 
     const wsSupervisao = XLSX.utils.json_to_sheet(dataSupervisao);
@@ -275,13 +285,14 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* Cards */}
+      {/* Cards --- ATUALIZADO --- */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           { label: 'Células com Doações', value: totalCelulas.toString(), color: 'from-indigo-500 to-blue-500' },
           { label: 'Total de KG no Período', value: `${formatPt(totalKg)} kg`, color: 'from-emerald-500 to-teal-500' },
           { label: 'Média por Célula', value: `${formatPt(mediaKg)} kg`, color: 'from-amber-500 to-orange-500' },
-          { label: 'Alertas', value: alertas.toString(), color: 'from-rose-500 to-pink-500' },
+          // --- CARD ALTERADO ---
+          { label: 'Total de Itens', value: formatInt(totalItens), color: 'from-rose-500 to-pink-500' },
         ].map((c, i) => (
           <div key={i} className={`rounded-xl bg-gradient-to-br ${c.color} p-[1px] shadow`}>
             <div className="rounded-xl bg-white p-4">

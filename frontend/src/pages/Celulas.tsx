@@ -62,7 +62,7 @@ export default function CelulasPage() {
   
   // Estados do Modal de Recebimento
   const [recebimentoKG, setRecebimentoKG] = useState<string>('0');
-  const [recebimentoItens, setRecebimentoItens] = useState<string>('1'); // <-- NOVO ESTADO (default 1)
+  const [recebimentoItens, setRecebimentoItens] = useState<string>('1');
   const [dataChegada, setDataChegada] = useState(new Date().toISOString().split('T')[0]);
   const [observacao, setObservacao] = useState('');
   
@@ -125,6 +125,7 @@ export default function CelulasPage() {
     }));
   };
 
+  // --- FUNÇÃO DE SALVAR (handleSubmit) ATUALIZADA ---
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -140,16 +141,66 @@ export default function CelulasPage() {
       };
 
       if (editingCelula) {
-        const { error } = await supabase
-          .from('celulas').update(dadosParaSalvar).eq('id', editingCelula.id);
-        if (error) throw error;
-        showToast('Célula atualizada com sucesso!');
+        // --- INÍCIO DA NOVA LÓGICA DE AJUSTE ---
+        
+        // 1. Verifica se o KG foi alterado manualmente no modal de Edição
+        const kgMudou = Number(editingCelula.quantidade_kg) !== Number(formData.quantidade_kg);
+
+        if (kgMudou) {
+          // Se o KG mudou, o usuário está fazendo um AJUSTE DE SALDO.
+          
+          // 2. Apaga todo o histórico antigo daquela célula
+          const { error: deleteError } = await supabase
+            .from('historico_kg')
+            .delete()
+            .eq('celula_id', editingCelula.id);
+          
+          if (deleteError) throw new Error("Falha ao limpar histórico: " + deleteError.message);
+
+          // 3. Insere um NOVO lançamento único no histórico com o valor total
+          const { error: insertError } = await supabase
+            .from('historico_kg')
+            .insert([{
+              celula_id: editingCelula.id,
+              quantidade: formData.quantidade_kg, // O novo valor total
+              quantidade_itens: 1, // Um ajuste é considerado "1 item"
+              data_chegada: new Date().toISOString(), // Data do ajuste
+              observacoes: `Ajuste manual de saldo para ${formData.quantidade_kg} kg.`
+            }]);
+            
+          if (insertError) throw new Error("Falha ao inserir novo histórico: " + insertError.message);
+
+          // 4. Atualiza a tabela 'celulas' com os dados (nome, lideres, e o novo KG)
+          const { error: updateError } = await supabase
+            .from('celulas')
+            .update(dadosParaSalvar) // 'dadosParaSalvar' já tem o novo KG
+            .eq('id', editingCelula.id);
+
+          if (updateError) throw updateError;
+          
+          showToast('Célula atualizada e histórico ajustado!');
+
+        } else {
+          // Se o KG não mudou (usuário só mudou nome, líder, etc)
+          // Apenas atualiza a tabela 'celulas' e não mexe no histórico
+          const { error } = await supabase
+            .from('celulas')
+            .update(dadosParaSalvar)
+            .eq('id', editingCelula.id);
+
+          if (error) throw error;
+          showToast('Célula atualizada com sucesso!');
+        }
+        // --- FIM DA NOVA LÓGICA DE AJUSTE ---
+
       } else {
+        // Lógica de CRIAR NOVA CÉLULA (não muda)
         const { error } = await supabase
           .from('celulas').insert([dadosParaSalvar]);
         if (error) throw error;
         showToast('Célula criada com sucesso!');
       }
+
       await carregarDados();
       handleCloseModal();
     } catch (error: any) {
@@ -157,6 +208,7 @@ export default function CelulasPage() {
       showToast('Erro ao salvar célula: ' + error.message, true);
     }
   };
+  // --- FIM DA FUNÇÃO DE SALVAR ---
 
   const handleEdit = (celula: Celula) => {
     setFormData({
@@ -198,16 +250,16 @@ export default function CelulasPage() {
     });
   };
 
-  // --- FUNÇÃO DE RECEBIMENTO ATUALIZADA ---
+  // --- FUNÇÃO DE RECEBIMENTO (Adicionar) ---
   const handleRecebimentoSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCelulaRecebimento) return showToast('Selecione uma célula!', true);
     
     const kgRecebido = Number(recebimentoKG || 0);
-    const itensRecebidos = Number(recebimentoItens || 0); // <-- NOVO VALOR
+    const itensRecebidos = Number(recebimentoItens || 0); 
     
     if (kgRecebido <= 0) return showToast('A quantidade de KG deve ser maior que zero.', true);
-    if (itensRecebidos <= 0) return showToast('A quantidade de Itens deve ser maior que zero.', true); // <-- NOVA VALIDAÇÃO
+    if (itensRecebidos <= 0) return showToast('A quantidade de Itens deve ser maior que zero.', true); 
 
     try {
       const novaQuantidade = Number(selectedCelulaRecebimento.quantidade_kg) + kgRecebido;
@@ -218,7 +270,7 @@ export default function CelulasPage() {
         .insert([{
           celula_id: selectedCelulaRecebimento.id,
           quantidade: kgRecebido,
-          quantidade_itens: itensRecebidos, // <-- SALVANDO NOVO VALOR
+          quantidade_itens: itensRecebidos, 
           data_chegada: new Date(dataChegada).toISOString(),
           observacoes: observacao || null 
         }]);
@@ -249,7 +301,7 @@ export default function CelulasPage() {
     setIsRecebimentoModalOpen(false);
     setSelectedCelulaRecebimento(null);
     setRecebimentoKG('0');
-    setRecebimentoItens('1'); // <-- RESETADO
+    setRecebimentoItens('1'); 
     setDataChegada(new Date().toISOString().split('T')[0]);
     setObservacao(''); 
   };
@@ -515,7 +567,6 @@ export default function CelulasPage() {
                 />
               </div>
               <div>
-                {/* LINHA 492 - CORRIGIDA */}
                 <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de KG *</label>
                 <input
                   type="number" name="quantidade_kg" value={formData.quantidade_kg} onChange={handleInputChange}
@@ -536,7 +587,7 @@ export default function CelulasPage() {
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
                 >
                   <Save size={16} />
-                  {editingCelula ? 'Atualizar' : 'Salvar'}
+                  Atualizar
                 </button>
               </div>
             </form>
@@ -660,47 +711,4 @@ export default function CelulasPage() {
                 />
               </div>
 
-              {/* --- CAMPO DE OBSERVAÇÃO --- */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
-                <textarea
-                  value={observacao}
-                  onChange={(e) => setObservacao(e.target.value)}
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                  placeholder="Ex: Produtos vencidos, pacote rasgado, etc."
-                />
-              </div>
-              
-              {selectedCelulaRecebimento && (
-                <div className="bg-green-50 p-3 rounded-lg">
-                  <div className="text-sm">
-                    <span className="font-medium text-green-800">Novo Total (na Célula):</span>
-                    <span className="ml-1 text-green-700 font-bold">
-                      {(Number(selectedCelulaRecebimento.quantidade_kg) + Number(recebimentoKG || 0)).toFixed(1)} kg
-                    </span>
-                  </div>
-                </div>
-              )}
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button" onClick={handleCloseRecebimentoModal}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
-                >
-                  <Save size={16} />
-                  Registrar Recebimento
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+              {/* --- CAMPO DE OBS
