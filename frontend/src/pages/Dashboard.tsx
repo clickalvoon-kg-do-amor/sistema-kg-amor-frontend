@@ -4,11 +4,11 @@ import { supabase } from '../lib/supabaseClient';
 import * as XLSX from 'xlsx'; // Importa a biblioteca de Excel
 import { Download } from 'lucide-react'; // Ícone para o botão
 
-// LÓGICA DE DADOS (LENDO DE RECEBIMENTOS)
-type RecebimentoComCelula = {
+// LÓGICA DE DADOS (LENDO DO NOVO 'historico_kg')
+type HistoricoComCelula = {
   quantidade: number;
   data_chegada: string;
-  celulas: {
+  celulas: { // Dados da célula que fez o recebimento
     id: number;
     nome: string;
     lider?: string | null;
@@ -60,7 +60,7 @@ function RankingBox({ title, data }: RankingBoxProps) {
 }
 
 export default function Dashboard() {
-  const [todosRecebimentos, setTodosRecebimentos] = useState<RecebimentoComCelula[]>([]);
+  const [todoHistorico, setTodoHistorico] = useState<HistoricoComCelula[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filtros (datas começam vazias)
@@ -71,25 +71,25 @@ export default function Dashboard() {
     dataFim: '',
   });
 
-  // Opções dos selects (derivadas do banco)
+  // Opções dos selects (derivadas do histórico)
   const opcoesRede = useMemo(() => {
     const set = new Set<string>();
-    todosRecebimentos.forEach((r) => set.add((r.celulas?.redes?.cor || 'Sem rede').toUpperCase()));
+    todoHistorico.forEach((r) => set.add((r.celulas?.redes?.cor || 'Sem rede').toUpperCase()));
     return ['Todas', ...Array.from(set).sort()];
-  }, [todosRecebimentos]);
+  }, [todoHistorico]);
 
   const opcoesSupervisao = useMemo(() => {
     const set = new Set<string>();
-    todosRecebimentos.forEach((r) => set.add((r.celulas?.supervisores || 'N/D').toUpperCase()));
+    todoHistorico.forEach((r) => set.add((r.celulas?.supervisores || 'N/D').toUpperCase()));
     return ['Todos', ...Array.from(set).sort()];
-  }, [todosRecebimentos]);
+  }, [todoHistorico]);
 
-  // Carregamento inicial (lendo de RECEBIMENTOS)
+  // Carregamento inicial (lendo de 'historico_kg')
   useEffect(() => {
     (async () => {
       setLoading(true);
       const { data, error } = await supabase
-        .from('recebimentos')
+        .from('historico_kg') // <--- LENDO DA TABELA CORRETA
         .select(`
           quantidade,
           data_chegada,
@@ -103,10 +103,10 @@ export default function Dashboard() {
         `);
 
       if (error) {
-        console.error('Erro ao buscar recebimentos:', error);
-        setTodosRecebimentos([]);
+        console.error('Erro ao buscar histórico:', error);
+        setTodoHistorico([]);
       } else {
-        setTodosRecebimentos((data || []) as RecebimentoComCelula[]);
+        setTodoHistorico((data || []) as HistoricoComCelula[]);
       }
       setLoading(false);
     })();
@@ -114,7 +114,7 @@ export default function Dashboard() {
 
   // Aplica filtros (COM A LÓGICA DE DATA CORRIGIDA)
   const filtradas = useMemo(() => {
-    let arr = [...todosRecebimentos];
+    let arr = [...todoHistorico];
 
     if (filtros.rede !== 'Todas') {
       const alvo = filtros.rede.toUpperCase();
@@ -139,9 +139,9 @@ export default function Dashboard() {
     }
 
     return arr;
-  }, [todosRecebimentos, filtros]);
+  }, [todoHistorico, filtros]);
 
-  // ---- Métricas (baseadas nos recebimentos filtrados)
+  // ---- Métricas (baseadas no histórico filtrado)
   const celulasUnicas = useMemo(() => {
     const set = new Set<number>();
     filtradas.forEach((r) => {
@@ -158,7 +158,7 @@ export default function Dashboard() {
   const mediaKg = totalCelulas > 0 ? totalKg / totalCelulas : 0;
   const alertas = 0;
 
-  // ---- Rankings (baseados nos recebimentos filtrados)
+  // ---- Rankings (baseados no histórico filtrado)
   const topSupervisao = useMemo(() => {
     const mapa = new Map<string, number>();
     filtradas.forEach((r) => {
@@ -194,27 +194,32 @@ export default function Dashboard() {
 
   // --- NOVA FUNÇÃO DE EXPORTAR PARA EXCEL ---
   const handleExportExcel = () => {
-    // 1. Formatar dados para o Excel
     const dataSupervisao = topSupervisao.map(([Supervisao, KG]) => ({ Supervisao, KG }));
     const dataCelulas = topCelulas.map(([Celula, KG]) => ({ Celula, KG }));
     const dataRedes = rankingRedes.map(([Rede, KG]) => ({ Rede, KG }));
+    
+    // Planilha extra com todos os lançamentos filtrados
+    const dataDetalhada = filtradas.map(r => ({
+      Data: new Date(r.data_chegada).toLocaleDateString('pt-BR'),
+      Celula: r.celulas?.nome || 'N/D',
+      Supervisores: r.celulas?.supervisores || 'N/D',
+      Rede: r.celulas?.redes?.cor || 'N/D',
+      Quantidade_KG: r.quantidade
+    }));
 
-    // 2. Criar "planilhas" na memória
     const wsSupervisao = XLSX.utils.json_to_sheet(dataSupervisao);
     const wsCelulas = XLSX.utils.json_to_sheet(dataCelulas);
     const wsRedes = XLSX.utils.json_to_sheet(dataRedes);
+    const wsDetalhada = XLSX.utils.json_to_sheet(dataDetalhada);
 
-    // 3. Criar o "arquivo"
     const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, wsDetalhada, "Lançamentos Filtrados");
     XLSX.utils.book_append_sheet(wb, wsSupervisao, "Top Supervisão");
     XLSX.utils.book_append_sheet(wb, wsCelulas, "Top Células");
     XLSX.utils.book_append_sheet(wb, wsRedes, "Ranking Redes");
 
-    // 4. Gerar o nome do arquivo com data
     const dataHoje = new Date().toISOString().split('T')[0];
     const nomeArquivo = `Relatorio_KG_do_Amor_${dataHoje}.xlsx`;
-
-    // 5. Baixar o arquivo
     XLSX.writeFile(wb, nomeArquivo);
   };
 
@@ -257,7 +262,7 @@ export default function Dashboard() {
           placeholder="dd/mm/aaaa"
         />
 
-        {/* --- NOVO BOTÃO DE EXPORTAR --- */}
+        {/* --- BOTÃO DE EXPORTAR --- */}
         <button
           onClick={handleExportExcel}
           className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"

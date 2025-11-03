@@ -3,18 +3,18 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Save, X, Users, UserCheck, Palette, Weight, Trash2, Calendar } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
-// --- NOVO COMPONENTE DE TOAST ---
-function Toast({ message, onClose }: { message: string, onClose: () => void }) {
+// --- COMPONENTE DE TOAST ---
+function Toast({ message, onClose, isError = false }: { message: string, onClose: () => void, isError?: boolean }) {
   useEffect(() => {
     const timer = setTimeout(() => {
       onClose();
-    }, 3000); // Some depois de 3 segundos
-
+    }, 4000); // 4 segundos
     return () => clearTimeout(timer);
   }, [onClose]);
 
+  const bgColor = isError ? 'bg-red-600' : 'bg-green-600';
   return (
-    <div className="fixed top-5 right-5 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg z-[100]">
+    <div className={`fixed top-5 right-5 ${bgColor} text-white px-6 py-3 rounded-lg shadow-lg z-[100]`}>
       {message}
     </div>
   );
@@ -60,10 +60,12 @@ export default function CelulasPage() {
   const [editingCelula, setEditingCelula] = useState<Celula | null>(null);
   const [selectedCelulaRecebimento, setSelectedCelulaRecebimento] = useState<Celula | null>(null);
   const [recebimentoKG, setRecebimentoKG] = useState<string>('0');
+  
+  // Campo de data continua aqui, pois é salvo no histórico
   const [dataChegada, setDataChegada] = useState(new Date().toISOString().split('T')[0]);
   
-  // --- NOVO ESTADO PARA O TOAST ---
   const [toastMessage, setToastMessage] = useState('');
+  const [isToastError, setIsToastError] = useState(false);
 
   const [formData, setFormData] = useState<FormData>({
     nome: '',
@@ -74,6 +76,12 @@ export default function CelulasPage() {
     endereco: '',
     quantidade_kg: 0
   });
+
+  // Função para mostrar toast
+  const showToast = (message: string, isError: boolean = false) => {
+    setToastMessage(message);
+    setIsToastError(isError);
+  };
 
   useEffect(() => {
     carregarDados();
@@ -96,7 +104,7 @@ export default function CelulasPage() {
       setCelulas(celulasData || []);
     } catch (error: any) {
       console.error('Erro ao carregar dados:', error);
-      setToastMessage('Erro ao carregar dados: ' + error.message);
+      showToast('Erro ao carregar dados: ' + error.message, true);
     } finally {
       setLoading(false);
     }
@@ -128,18 +136,18 @@ export default function CelulasPage() {
         const { error } = await supabase
           .from('celulas').update(dadosParaSalvar).eq('id', editingCelula.id);
         if (error) throw error;
-        setToastMessage('Célula atualizada com sucesso!');
+        showToast('Célula atualizada com sucesso!');
       } else {
         const { error } = await supabase
           .from('celulas').insert([dadosParaSalvar]);
         if (error) throw error;
-        setToastMessage('Célula criada com sucesso!');
+        showToast('Célula criada com sucesso!');
       }
       await carregarDados();
       handleCloseModal();
     } catch (error: any) {
       console.error('Erro ao salvar célula:', error);
-      setToastMessage('Erro ao salvar célula: ' + error.message);
+      showToast('Erro ao salvar célula: ' + error.message, true);
     }
   };
 
@@ -160,14 +168,15 @@ export default function CelulasPage() {
   const handleDelete = async (celulaId: number) => {
     if (window.confirm('Tem certeza que deseja excluir esta célula?')) {
       try {
+        // Você pode querer adicionar lógica para deletar o histórico_kg também
         const { error } = await supabase
           .from('celulas').update({ ativo: false }).eq('id', celulaId);
         if (error) throw error;
         await carregarDados();
-        setToastMessage('Célula excluída com sucesso!');
+        showToast('Célula excluída com sucesso!');
       } catch (error: any) {
         console.error('Erro ao excluir célula:', error);
-        setToastMessage('Erro ao excluir célula: ' + error.message);
+        showToast('Erro ao excluir célula: ' + error.message, true);
       }
     }
   };
@@ -181,56 +190,50 @@ export default function CelulasPage() {
     });
   };
 
+  // --- FUNÇÃO DE RECEBIMENTO CORRIGIDA ---
+  // Agora salva o histórico na nova tabela 'historico_kg'
   const handleRecebimentoSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedCelulaRecebimento) return setToastMessage('Selecione uma célula!');
+    if (!selectedCelulaRecebimento) return showToast('Selecione uma célula!', true);
     
     const kgRecebido = Number(recebimentoKG || 0);
-    if (kgRecebido <= 0) return setToastMessage('A quantidade deve ser maior que zero.');
+    if (kgRecebido <= 0) return showToast('A quantidade deve ser maior que zero.', true);
 
     try {
       const novaQuantidade = Number(selectedCelulaRecebimento.quantidade_kg) + kgRecebido;
       
-      const { error } = await supabase
-        .from('celulas')
-        .update({ quantidade_kg: novaQuantidade })
-        .eq('id', selectedCelulaRecebimento.id);
-      if (error) throw error;
-
-      // Pegar o ID do produto "Doação Genérica" (vamos assumir ID=1)
-      // Se seu produto genérico tiver outro ID, mude aqui.
-      const PRODUTO_GENERICO_ID = 1; 
-
-      const { error: recebimentoError } = await supabase
-        .from('recebimentos')
+      // 1. Inserir o histórico na sua nova tabela
+      const { error: historicoError } = await supabase
+        .from('historico_kg') // <--- SALVANDO NA TABELA CERTA
         .insert([{
           celula_id: selectedCelulaRecebimento.id,
           quantidade: kgRecebido,
-          data_chegada: new Date(dataChegada).toISOString(),
-          observacoes: `Recebimento rápido via card - ${selectedCelulaRecebimento.nome}`,
-          produto_id: PRODUTO_GENERICO_ID // <-- Necessário para o Dashboard ler
+          data_chegada: new Date(dataChegada).toISOString()
         }]);
 
-      if (recebimentoError) {
-        console.error('Erro ao registrar histórico (CRÍTICO):', recebimentoError.message);
-        setToastMessage('Erro ao salvar no histórico: ' + recebimentoError.message);
-        // Precisamos reverter a soma do KG total se o histórico falhar
-         await supabase
-          .from('celulas')
-          .update({ quantidade_kg: selectedCelulaRecebimento.quantidade_kg }) // Volta ao valor antigo
-          .eq('id', selectedCelulaRecebimento.id);
-        return;
+      if (historicoError) {
+        // Se falhar aqui, não continuamos
+        throw historicoError;
+      }
+      
+      // 2. Se o histórico funcionou, ATUALIZAR o saldo total da célula
+      const { error: celulaError } = await supabase
+        .from('celulas')
+        .update({ quantidade_kg: novaQuantidade })
+        .eq('id', selectedCelulaRecebimento.id);
+      
+      if (celulaError) {
+        // Isso é ruim (histórico foi salvo mas saldo não), mas vamos avisar
+        throw new Error("Histórico salvo, mas falha ao atualizar saldo da célula: " + celulaError.message);
       }
 
       await carregarDados();
-      
-      // --- TROCADO O ALERT PELO TOAST ---
-      setToastMessage(`Recebimento de ${kgRecebido} kg registrado!`);
+      showToast(`Recebimento de ${kgRecebido} kg registrado!`);
       handleCloseRecebimentoModal();
       
     } catch (error: any) {
       console.error('Erro ao registrar recebimento:', error);
-      setToastMessage('Erro: ' + error.message);
+      showToast('Erro ao salvar: ' + error.message, true);
     }
   };
 
@@ -269,9 +272,12 @@ export default function CelulasPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* --- RENDERIZA O TOAST AQUI --- */}
       {toastMessage && (
-        <Toast message={toastMessage} onClose={() => setToastMessage('')} />
+        <Toast 
+          message={toastMessage} 
+          onClose={() => setToastMessage('')} 
+          isError={isToastError} 
+        />
       )}
 
       {/* Header */}
@@ -304,7 +310,7 @@ export default function CelulasPage() {
         </div>
       </div>
 
-      {/* Cards de Estatísticas */}
+      {/* Cards de Estatísticas (Lê o Saldo Total da tabela 'celulas') */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
           <div className="flex items-center justify-between">
@@ -337,7 +343,7 @@ export default function CelulasPage() {
         </div>
       </div>
 
-      {/* Lista de Células */}
+      {/* Lista de Células (Lê o Saldo Total da tabela 'celulas') */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {celulas.map((celula) => {
           const redeInfo = getRedeInfo(celula);
@@ -416,7 +422,7 @@ export default function CelulasPage() {
         )}
       </div>
 
-      {/* Modal de Cadastro/Edição */}
+      {/* Modal de Cadastro/Edição (Sem alterações) */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
@@ -485,7 +491,7 @@ export default function CelulasPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de KG *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de KG *</L label>
                 <input
                   type="number" name="quantidade_kg" value={formData.quantidade_kg} onChange={handleInputChange}
                   min="0" step="0.1" required
@@ -513,7 +519,7 @@ export default function CelulasPage() {
         </div>
       )}
 
-      {/* Modal de Recebimento */}
+      {/* Modal de Recebimento (Agora salva na tabela 'historico_kg') */}
       {isRecebimentoModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
@@ -610,7 +616,7 @@ export default function CelulasPage() {
               {selectedCelulaRecebimento && (
                 <div className="bg-green-50 p-3 rounded-lg">
                   <div className="text-sm">
-                    <span className="font-medium text-green-800">Novo Total:</span>
+                    <span className="font-medium text-green-800">Novo Total (na Célula):</span>
                     <span className="ml-1 text-green-700 font-bold">
                       {(Number(selectedCelulaRecebimento.quantidade_kg) + Number(recebimentoKG || 0)).toFixed(1)} kg
                     </span>

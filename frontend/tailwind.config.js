@@ -2,7 +2,7 @@
 export default {
   content: [
     "./index.html",
-    // Esta linha garante que o Tailwind vai ler TODOS os seus arquivos
+    // Esta linha corrige o design
     "./src/**/*.{js,ts,jsx,tsx}", 
   ],
   theme: {
