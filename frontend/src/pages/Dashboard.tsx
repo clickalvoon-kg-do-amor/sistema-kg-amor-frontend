@@ -1,12 +1,14 @@
 // frontend/src/pages/Dashboard.tsx
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import * as XLSX from 'xlsx'; // <--- ADICIONADO
+import { Download } from 'lucide-react'; // <--- ADICIONADO
 
 // LÓGICA DE DADOS (LENDO DE CELULAS)
 type Celula = {
   id: number;
   nome: string;
-  lider?: string | null;
+  lider: string; // Mudei de 'lider?' para 'lider' para bater com o seu arquivo original
   supervisores: string;
   quantidade_kg: number | null;
   redes?: {
@@ -25,7 +27,7 @@ type RankingBoxProps = {
   data: [string, number][];
 };
 
-// Formato com 2 casas decimais, como no seu print original de 55,80 kg
+// Formato com 2 casas decimais
 const formatPt = (n: number) =>
   new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
@@ -83,7 +85,7 @@ export default function Dashboard() {
       const { data, error } = await supabase
         .from('celulas')
         .select('id, nome, lider, supervisores, quantidade_kg, redes(cor)')
-        .eq('ativo', true); // Adicionado filtro de ativo
+        .eq('ativo', true); 
 
       if (error) {
         console.error('Erro ao buscar células:', error);
@@ -97,7 +99,7 @@ export default function Dashboard() {
 
   // Aplica filtros (sem data)
   const filtradas = useMemo(() => {
-    let arr = [...todasCelulas];
+    let arr = [...todasCelulas]; // Começa com todas as células
 
     if (filtros.rede !== 'Todas') {
       const alvo = filtros.rede.toUpperCase();
@@ -111,7 +113,7 @@ export default function Dashboard() {
     return arr;
   }, [todasCelulas, filtros]);
 
-  // ---- Métricas (lendo de 'celulas')
+  // ---- Métricas (lendo das células filtradas)
   const totalCelulas = filtradas.length;
   const totalKg = useMemo(
     () => filtradas.reduce((s, c) => s + (Number(c.quantidade_kg) || 0), 0),
@@ -120,7 +122,7 @@ export default function Dashboard() {
   const mediaKg = totalCelulas ? totalKg / totalCelulas : 0;
   const alertas = 0;
 
-  // ---- Rankings
+  // ---- Rankings (lendo das células filtradas)
   const topSupervisao = useMemo(() => {
     const mapa = new Map<string, number>();
     filtradas.forEach((c) => {
@@ -147,7 +149,33 @@ export default function Dashboard() {
     return Array.from(mapa.entries()).sort((a, b) => b[1] - a[1]);
   }, [filtradas]);
 
-  // ---- UI (Design Original, sem filtros de data)
+  
+  // --- FUNÇÃO ADICIONADA ---
+  const handleExportExcel = () => {
+    // 1. Formatar dados para o Excel
+    // Usamos 'filtradas' para exportar o que o usuário está vendo na tela
+    const dadosParaExportar = filtradas.map(c => ({
+      'Célula': c.nome,
+      'Líderes': c.lider,
+      'Supervisores': c.supervisores,
+      'Rede': c.redes?.cor || 'N/D',
+      'KG Total': c.quantidade_kg || 0
+    }));
+
+    // 2. Criar a "planilha"
+    const ws = XLSX.utils.json_to_sheet(dadosParaExportar);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Células");
+
+    // 3. Baixar o arquivo
+    const dataHoje = new Date().toISOString().split('T')[0];
+    const nomeArquivo = `Relatorio_Celulas_${dataHoje}.xlsx`;
+    XLSX.writeFile(wb, nomeArquivo);
+  };
+  // --- FIM DA FUNÇÃO ---
+
+
+  // ---- UI (Design Original)
   return (
     <div className="space-y-6 p-6">
       {/* Título e Filtros */}
@@ -170,7 +198,16 @@ export default function Dashboard() {
         >
           {opcoesSupervisao.map((s) => (<option key={s} value={s}>{s === 'Todos' ? 'SUPERVISÃO' : s}</option>))}
         </select>
-        {/* Campos de data e Excel removidos */}
+        
+        {/* --- BOTÃO ADICIONADO --- */}
+        <button
+          onClick={handleExportExcel}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+          title="Exportar para Excel"
+        >
+          <Download size={16} />
+          Exportar
+        </button>
       </div>
 
       {/* Cards (Design Original) */}
