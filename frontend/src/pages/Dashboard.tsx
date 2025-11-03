@@ -2,25 +2,26 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
-type Celula = {
-  id: number;
-  nome: string;
-  lider?: string | null;
-  supervisores: string;
-  quantidade_kg: number | null;
-  // relação para pegar a cor da rede (FK -> redes)
-  redes?: {
-    cor: string | null;
-  } | null;
-  // se um dia você juntar com recebimentos/itens, pode usar estas datas
-  // data_recebimento?: string | null;
+// AJUSTE 3: Mudar a tipagem. Não lemos mais "Célula", e sim "Recebimento com Célula"
+type RecebimentoComCelula = {
+  quantidade: number;
+  data_chegada: string;
+  celulas: { // Dados da célula que fez o recebimento
+    id: number;
+    nome: string;
+    lider?: string | null;
+    supervisores: string;
+    redes?: {
+      cor: string | null;
+    } | null;
+  } | null; // Célula pode ser nula se tiver sido excluída
 };
 
 type Filtros = {
-  rede: string;         // "Todas" | "Branca" | "Vermelha" | ...
-  supervisao: string;   // "Todos" | "FULANO E FULANA" | ...
-  dataIni?: string;     // 'YYYY-MM-DD'
-  dataFim?: string;     // 'YYYY-MM-DD'
+  rede: string;       // "Todas" | "Branca" | "Vermelha" | ...
+  supervisao: string; // "Todos" | "FULANO E FULANA" | ...
+  dataIni?: string;    // 'YYYY-MM-DD'
+  dataFim?: string;    // 'YYYY-MM-DD'
 };
 
 type RankingBoxProps = {
@@ -29,7 +30,7 @@ type RankingBoxProps = {
 };
 
 const formatPt = (n: number) =>
-  new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(n);
 
 function RankingBox({ title, data }: RankingBoxProps) {
   return (
@@ -45,39 +46,43 @@ function RankingBox({ title, data }: RankingBoxProps) {
             <span className="font-semibold text-right ml-2 flex-shrink-0">{formatPt(total)} kg</span>
           </li>
         ))}
+        {data.length === 0 && (
+          <div className="text-sm text-slate-400">
+            {/* AJUSTE 3: Mensagem mais clara */}
+            Nenhum dado encontrado para os filtros selecionados.
+          </div>
+        )}
       </ol>
-      {data.length === 0 && (
-        <div className="text-sm text-slate-400">
-          Carregando...
-        </div>
-      )}
     </div>
   );
 }
 
 export default function Dashboard() {
-  // base vinda do banco (não filtrada)
-  const [todas, setTodas] = useState<Celula[]>([]);
+  // AJUSTE 3: O estado "todas" agora guarda Recebimentos, não Células
+  const [todas, setTodas] = useState<RecebimentoComCelula[]>([]);
   const [loading, setLoading] = useState(true);
 
   // filtros
   const [filtros, setFiltros] = useState<Filtros>({
     rede: 'Todas',
     supervisao: 'Todos',
-    dataIni: '',
-    dataFim: '',
+    // AJUSTE 3: Definir datas padrão (ex: último mês)
+    dataIni: new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().split('T')[0],
+    dataFim: new Date().toISOString().split('T')[0],
   });
 
   // opções dos selects (derivadas do banco)
   const opcoesRede = useMemo(() => {
     const set = new Set<string>();
-    todas.forEach((c) => set.add((c.redes?.cor || 'Sem rede').toUpperCase()));
+    // AJUSTE 3: Ler a rede de dentro do objeto 'celulas' aninhado
+    todas.forEach((r) => set.add((r.celulas?.redes?.cor || 'Sem rede').toUpperCase()));
     return ['Todas', ...Array.from(set).sort()];
   }, [todas]);
 
   const opcoesSupervisao = useMemo(() => {
     const set = new Set<string>();
-    todas.forEach((c) => set.add((c.supervisores || 'N/D').toUpperCase()));
+    // AJUSTE 3: Ler o supervisor de dentro do objeto 'celulas' aninhado
+    todas.forEach((r) => set.add((r.celulas?.supervisores || 'N/D').toUpperCase()));
     return ['Todos', ...Array.from(set).sort()];
   }, [todas]);
 
@@ -85,16 +90,29 @@ export default function Dashboard() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      // puxa tudo 1x; depois filtramos em memória (rápido e simples)
+      
+      // AJUSTE 3: Query principal mudou!
+      // Buscar da tabela 'recebimentos' e trazer dados da 'celulas' via join
       const { data, error } = await supabase
-        .from('celulas')
-        .select('id, nome, lider, supervisores, quantidade_kg, redes(cor)');
+        .from('recebimentos')
+        .select(`
+          quantidade,
+          data_chegada,
+          celulas (
+            id,
+            nome,
+            lider,
+            supervisores,
+            redes (cor)
+          )
+        `);
 
       if (error) {
-        console.error('Erro ao buscar células:', error);
+        console.error('Erro ao buscar recebimentos:', error);
         setTodas([]);
       } else {
-        setTodas((data || []) as Celula[]);
+        // "todas" agora é a lista de todos os recebimentos
+        setTodas((data || []) as RecebimentoComCelula[]);
       }
 
       setLoading(false);
@@ -105,40 +123,69 @@ export default function Dashboard() {
   const filtradas = useMemo(() => {
     let arr = [...todas];
 
+    // Filtro de Rede
     if (filtros.rede !== 'Todas') {
       const alvo = filtros.rede.toUpperCase();
-      arr = arr.filter((c) => (c.redes?.cor || 'Sem rede').toUpperCase() === alvo);
+      // AJUSTE 3: Ler do objeto aninhado
+      arr = arr.filter((r) => (r.celulas?.redes?.cor || 'Sem rede').toUpperCase() === alvo);
     }
 
+    // Filtro de Supervisão
     if (filtros.supervisao !== 'Todos') {
       const alvo = filtros.supervisao.toUpperCase();
-      arr = arr.filter((c) => (c.supervisores || '').toUpperCase() === alvo);
+      // AJUSTE 3: Ler do objeto aninhado
+      arr = arr.filter((r) => (r.celulas?.supervisores || '').toUpperCase() === alvo);
     }
 
-    // Datas: só funcionará quando houver coluna de data para filtrar (ex.: data_recebimento)
-    // if (filtros.dataIni) { arr = arr.filter(...); }
-    // if (filtros.dataFim) { arr = arr.filter(...); }
+    // AJUSTE 3: IMPLEMENTAR O FILTRO DE DATA
+    if (filtros.dataIni) {
+      // Pega a data e ajusta para o início do dia (00:00)
+      const dataIni = new Date(filtros.dataIni);
+      dataIni.setUTCHours(0, 0, 0, 0);
+      arr = arr.filter((r) => new Date(r.data_chegada) >= dataIni);
+    }
+    if (filtros.dataFim) {
+      // Pega a data e ajusta para o fim do dia (23:59)
+      const dataFim = new Date(filtros.dataFim);
+      dataFim.setUTCHours(23, 59, 59, 999);
+      arr = arr.filter((r) => new Date(r.data_chegada) <= dataFim);
+    }
 
     return arr;
   }, [todas, filtros]);
 
-  // ---- métricas (AGORA reagem também à cor da rede)
-  const totalCelulas = filtradas.length;
+  // ---- métricas (AGORA reagem aos filtros, inclusive data)
+  
+  // AJUSTE 3: Calcular total de células únicas que aparecem nos recebimentos filtrados
+  const celulasUnicas = useMemo(() => {
+    const set = new Set<number>();
+    filtradas.forEach((r) => {
+      if (r.celulas?.id) set.add(r.celulas.id);
+    });
+    return set;
+  }, [filtradas]);
+
+  const totalCelulas = celulasUnicas.size; // Total de células *com recebimentos no período*
+  
+  // AJUSTE 3: Total de KG é a soma dos recebimentos filtrados
   const totalKg = useMemo(
-    () => filtradas.reduce((s, c) => s + (Number(c.quantidade_kg) || 0), 0),
+    () => filtradas.reduce((s, r) => s + (Number(r.quantidade) || 0), 0),
     [filtradas]
   );
-  const mediaKg = totalCelulas ? totalKg / totalCelulas : 0;
+  const mediaKg = totalCelulas > 0 ? totalKg / totalCelulas : 0;
 
   // ainda não temos regra de alerta — mantive 0
   const alertas = 0;
 
-  // ---- rankings (usando conjunto filtrado)
+  // ---- rankings (AGORA usam os recebimentos filtrados e agrupam os dados)
+  
+  // AJUSTE 3: Recalcular rankings agrupando os recebimentos
   const topSupervisao = useMemo(() => {
     const mapa = new Map<string, number>();
-    filtradas.forEach((c) => {
-      const chave = (c.supervisores || 'N/D').toUpperCase();
-      const qtd = Number(c.quantidade_kg) || 0;
+    filtradas.forEach((r) => {
+      if (!r.celulas) return; // Ignora recebimentos sem célula
+      const chave = (r.celulas.supervisores || 'N/D').toUpperCase();
+      const qtd = Number(r.quantidade) || 0;
       mapa.set(chave, (mapa.get(chave) || 0) + qtd);
     });
     return Array.from(mapa.entries())
@@ -147,24 +194,32 @@ export default function Dashboard() {
   }, [filtradas]);
 
   const topCelulas = useMemo(() => {
-    return filtradas
-      .map((c) => [c.nome, Number(c.quantidade_kg) || 0] as [string, number])
+    const mapa = new Map<string, number>();
+    filtradas.forEach((r) => {
+      if (!r.celulas) return;
+      const chave = r.celulas.nome;
+      const qtd = Number(r.quantidade) || 0;
+      mapa.set(chave, (mapa.get(chave) || 0) + qtd);
+    });
+    return Array.from(mapa.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 15);
   }, [filtradas]);
 
   const rankingRedes = useMemo(() => {
     const mapa = new Map<string, number>();
-    filtradas.forEach((c) => {
-      const cor = (c.redes?.cor || 'Sem rede').toUpperCase();
-      mapa.set(cor, (mapa.get(cor) || 0) + (Number(c.quantidade_kg) || 0));
+    filtradas.forEach((r) => {
+      if (!r.celulas?.redes) return;
+      const cor = (r.celulas.redes.cor || 'Sem rede').toUpperCase();
+      const qtd = Number(r.quantidade) || 0;
+      mapa.set(cor, (mapa.get(cor) || 0) + qtd);
     });
     return Array.from(mapa.entries()).sort((a, b) => b[1] - a[1]);
   }, [filtradas]);
 
   // ---- UI
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-6"> {/* Adicionado padding ao container principal */}
       {/* título e filtros */}
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="mr-4 flex items-center gap-2 text-2xl font-bold text-slate-800">
@@ -197,7 +252,7 @@ export default function Dashboard() {
           ))}
         </select>
 
-        {/* Datas (opcional — só farão efeito quando houver coluna para filtrar) */}
+        {/* Datas (AGORA FUNCIONAM!) */}
         <input
           type="date"
           className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
@@ -215,8 +270,9 @@ export default function Dashboard() {
       {/* cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: 'Total de Células', value: totalCelulas.toString(), color: 'from-indigo-500 to-blue-500' },
-          { label: 'Total de KG', value: `${formatPt(totalKg)} kg`, color: 'from-emerald-500 to-teal-500' },
+          // AJUSTE 3: Label do card de células atualizado
+          { label: 'Células com Doações', value: totalCelulas.toString(), color: 'from-indigo-500 to-blue-500' },
+          { label: 'Total de KG no Período', value: `${formatPt(totalKg)} kg`, color: 'from-emerald-500 to-teal-500' },
           { label: 'Média por Célula', value: `${formatPt(mediaKg)} kg`, color: 'from-amber-500 to-orange-500' },
           { label: 'Alertas', value: alertas.toString(), color: 'from-rose-500 to-pink-500' },
         ].map((c, i) => (
@@ -252,12 +308,16 @@ export default function Dashboard() {
               <svg width="140" height="140" viewBox="0 0 140 140" className="transform -rotate-90">
                 {rankingRedes.length > 0 ? (() => {
                   const total = rankingRedes.reduce((sum, [, kg]) => sum + kg, 0);
+                  if (total === 0) {
+                     return <circle cx="70" cy="70" r="55" fill="#e2e8f0" />;
+                  }
+                  
                   let currentAngle = 0;
                   
                   // Mapeamento de cores por rede
                   const coresRede: { [key: string]: string } = {
-                    'BRANCA': '#FFFFFF',
-                    'BRANCO': '#FFFFFF', 
+                    'BRANCA': '#E2E8F0', // Cinza claro
+                    'BRANCO': '#E2E8F0', 
                     'AMARELA': '#FFEB3B',
                     'AMARELO': '#FFEB3B',
                     'VERMELHA': '#F44336',
@@ -270,6 +330,7 @@ export default function Dashboard() {
                   };
                   
                   return rankingRedes.map(([cor, kg]) => {
+                    if (kg === 0) return null; // Não desenha fatias de 0kg
                     const percentage = (kg / total) * 100;
                     const angle = (percentage / 100) * 360;
                     const startAngle = currentAngle;
@@ -301,44 +362,46 @@ export default function Dashboard() {
                         <path
                           d={pathData}
                           fill={corFinal}
-                          stroke={cor.toUpperCase() === 'BRANCA' || cor.toUpperCase() === 'BRANCO' ? '#e2e8f0' : 'white'}
+                          stroke={cor.toUpperCase() === 'BRANCA' || cor.toUpperCase() === 'BRANCO' ? '#cbd5e1' : 'white'}
                           strokeWidth="2"
                         />
                       </g>
                     );
                   });
                 })() : (
-                  <circle cx="70" cy="70" r="55" fill="#e2e8f0" stroke="#000000" strokeWidth="2" />
+                  <circle cx="70" cy="70" r="55" fill="#e2e8f0" />
                 )}
               </svg>
             </div>
             <div className="flex-1 space-y-1">
               {rankingRedes.map(([cor, kg]) => {
                 const coresRede: { [key: string]: string } = {
-                  'BRANCA': '#FFFFFF',
-                  'BRANCO': '#FFFFFF', 
-                  'AMARELA': '#FFEB3B',
-                  'AMARELO': '#FFEB3B',
-                  'VERMELHA': '#F44336',
-                  'VERMELHO': '#F44336',
-                  'VERDE': '#4CAF50',
-                  'AZUL': '#2196F3',
-                  'MARROM': '#8D6E63',
-                  'ROXA': '#9C27B0',
-                  'ROXO': '#9C27B0'
+                    'BRANCA': '#E2E8F0',
+                    'BRANCO': '#E2E8F0', 
+                    'AMARELA': '#FFEB3B',
+                    'AMARELO': '#FFEB3B',
+                    'VERMELHA': '#F44336',
+                    'VERMELHO': '#F44336',
+                    'VERDE': '#4CAF50',
+                    'AZUL': '#2196F3',
+                    'MARROM': '#8D6E63',
+                    'ROXA': '#9C27B0',
+                    'ROXO': '#9C27B0'
                 };
                 
                 const total = rankingRedes.reduce((sum, [, weight]) => sum + weight, 0);
                 const percentage = total > 0 ? ((kg / total) * 100).toFixed(1) : '0';
                 const corFinal = coresRede[cor.toUpperCase()] || '#64748b';
                 
+                if (kg === 0) return null; // Não lista redes com 0kg
+
                 return (
                   <div key={cor} className="flex items-center gap-2 text-xs">
                     <div 
                       className="w-3 h-3 rounded-full border"
                       style={{ 
                         backgroundColor: corFinal,
-                        borderColor: cor.toUpperCase() === 'BRANCA' || cor.toUpperCase() === 'BRANCO' ? '#e2e8f0' : 'transparent'
+                        borderColor: cor.toUpperCase() === 'BRANCA' || cor.toUpperCase() === 'BRANCO' ? '#cbd5e1' : 'transparent'
                       }}
                     ></div>
                     <span className="flex-1 font-medium">{cor}</span>
@@ -358,13 +421,13 @@ export default function Dashboard() {
               const maxKg = Math.max(...topSupervisao.slice(0, 15).map(([, weight]) => weight));
               const height = maxKg > 0 ? (kg / maxKg) * 180 : 0;
               
-              // Buscar a cor da rede do supervisor (assumindo que o nome do supervisor está nas células)
-              const supervisorCelulas = filtradas.filter(c => c.supervisores.toUpperCase() === nome.toUpperCase());
-              const corRede = supervisorCelulas.length > 0 ? supervisorCelulas[0].redes?.cor : null;
+              // AJUSTE 3: Lógica para buscar a cor da rede do supervisor
+              const primeiroRecebimento = filtradas.find(r => r.celulas?.supervisores.toUpperCase() === nome.toUpperCase());
+              const corRede = primeiroRecebimento?.celulas?.redes?.cor;
               
               const coresRede: { [key: string]: string } = {
-                'BRANCA': '#FFFFFF',
-                'BRANCO': '#FFFFFF', 
+                'BRANCA': '#E2E8F0',
+                'BRANCO': '#E2E8F0', 
                 'AMARELA': '#FFEB3B',
                 'AMARELO': '#FFEB3B',
                 'VERMELHA': '#F44336',
@@ -378,13 +441,17 @@ export default function Dashboard() {
               
               const corFinal = corRede ? (coresRede[corRede.toUpperCase()] || '#64748b') : '#64748b';
               
+              if (kg === 0) return null; // Não mostra barra com 0kg
+
               return (
                 <div key={nome} className="flex flex-col items-center group relative">
                   <div
-                    className="w-6 transition-all duration-200 group-hover:opacity-80 rounded-t border-2 border-black"
+                    className="w-6 transition-all duration-200 group-hover:opacity-80 rounded-t border-b-2"
                     style={{ 
                       height: `${height}px`, 
-                      backgroundColor: corFinal
+                      backgroundColor: corFinal,
+                      // Adiciona borda para cores claras
+                      borderColor: corRede?.toUpperCase() === 'BRANCA' || corRede?.toUpperCase() === 'BRANCO' ? '#cbd5e1' : 'transparent'
                     }}
                   ></div>
                   <div className="mt-1 text-xs font-bold text-slate-700">
