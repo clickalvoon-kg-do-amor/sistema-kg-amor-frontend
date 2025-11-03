@@ -1,6 +1,25 @@
+// frontend/src/pages/Celulas.tsx
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Save, X, Users, UserCheck, Palette, Weight, Trash2, Calendar } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+
+// --- NOVO COMPONENTE DE TOAST ---
+function Toast({ message, onClose }: { message: string, onClose: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onClose();
+    }, 3000); // Some depois de 3 segundos
+
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <div className="fixed top-5 right-5 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg z-[100]">
+      {message}
+    </div>
+  );
+}
+// --- FIM DO TOAST ---
 
 interface Rede {
   id: number;
@@ -9,7 +28,6 @@ interface Rede {
   descricao?: string;
   ativo: boolean;
 }
-
 interface Celula {
   id: number;
   nome: string;
@@ -23,7 +41,6 @@ interface Celula {
   criado_em?: string;
   redes?: Rede;
 }
-
 interface FormData {
   nome: string;
   lider: string;
@@ -42,12 +59,11 @@ export default function CelulasPage() {
   const [isRecebimentoModalOpen, setIsRecebimentoModalOpen] = useState(false);
   const [editingCelula, setEditingCelula] = useState<Celula | null>(null);
   const [selectedCelulaRecebimento, setSelectedCelulaRecebimento] = useState<Celula | null>(null);
-  
-  // AJUSTE: Mudar estado para string para permitir campo vazio e corrigir o "0"
   const [recebimentoKG, setRecebimentoKG] = useState<string>('0');
-  
-  // AJUSTE: Adicionar estado para a data do recebimento
   const [dataChegada, setDataChegada] = useState(new Date().toISOString().split('T')[0]);
+  
+  // --- NOVO ESTADO PARA O TOAST ---
+  const [toastMessage, setToastMessage] = useState('');
 
   const [formData, setFormData] = useState<FormData>({
     nome: '',
@@ -59,7 +75,6 @@ export default function CelulasPage() {
     quantidade_kg: 0
   });
 
-  // Carregar dados do Supabase
   useEffect(() => {
     carregarDados();
   }, []);
@@ -67,43 +82,21 @@ export default function CelulasPage() {
   const carregarDados = async () => {
     try {
       setLoading(true);
-      
       const { data: redesData, error: redesError } = await supabase
-        .from('redes')
-        .select('*')
-        .eq('ativo', true)
-        .order('cor');
-
-      if (redesError) {
-        console.error('Erro ao carregar redes:', redesError);
-        alert('Erro ao carregar redes do banco de dados!');
-        return;
-      }
+        .from('redes').select('*').eq('ativo', true).order('cor');
+      if (redesError) throw redesError;
       setRedes(redesData || []);
       
       const { data: celulasData, error: celulasError } = await supabase
         .from('celulas')
-        .select(`
-          *,
-          redes (
-            id,
-            cor,
-            hex
-          )
-        `)
+        .select(`*, redes (id, cor, hex)`)
         .eq('ativo', true)
         .order('nome');
-
-      if (celulasError) {
-        console.error('Erro ao carregar células:', celulasError);
-        alert('Erro ao carregar células do banco de dados!');
-        return;
-      }
+      if (celulasError) throw celulasError;
       setCelulas(celulasData || []);
-      
-    } catch (error) {
-      console.error('Erro geral ao carregar dados:', error);
-      alert('Erro inesperado ao carregar dados!');
+    } catch (error: any) {
+      console.error('Erro ao carregar dados:', error);
+      setToastMessage('Erro ao carregar dados: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -119,7 +112,6 @@ export default function CelulasPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     try {
       const dadosParaSalvar = {
         nome: formData.nome,
@@ -133,32 +125,21 @@ export default function CelulasPage() {
       };
 
       if (editingCelula) {
-        // Atualizar célula existente
-        const { data, error } = await supabase
-          .from('celulas')
-          .update(dadosParaSalvar)
-          .eq('id', editingCelula.id)
-          .select();
-
+        const { error } = await supabase
+          .from('celulas').update(dadosParaSalvar).eq('id', editingCelula.id);
         if (error) throw error;
-        alert('Célula atualizada com sucesso!');
+        setToastMessage('Célula atualizada com sucesso!');
       } else {
-        // Criar nova célula
-        const { data, error } = await supabase
-          .from('celulas')
-          .insert([dadosParaSalvar])
-          .select();
-
+        const { error } = await supabase
+          .from('celulas').insert([dadosParaSalvar]);
         if (error) throw error;
-        alert('Célula criada com sucesso!');
+        setToastMessage('Célula criada com sucesso!');
       }
-
       await carregarDados();
       handleCloseModal();
-      
     } catch (error: any) {
       console.error('Erro ao salvar célula:', error);
-      alert('Erro ao salvar célula: ' + error.message);
+      setToastMessage('Erro ao salvar célula: ' + error.message);
     }
   };
 
@@ -180,17 +161,13 @@ export default function CelulasPage() {
     if (window.confirm('Tem certeza que deseja excluir esta célula?')) {
       try {
         const { error } = await supabase
-          .from('celulas')
-          .update({ ativo: false })  // Soft delete
-          .eq('id', celulaId);
-
+          .from('celulas').update({ ativo: false }).eq('id', celulaId);
         if (error) throw error;
-        
         await carregarDados();
-        alert('Célula excluída com sucesso!');
+        setToastMessage('Célula excluída com sucesso!');
       } catch (error: any) {
         console.error('Erro ao excluir célula:', error);
-        alert('Erro ao excluir célula: ' + error.message);
+        setToastMessage('Erro ao excluir célula: ' + error.message);
       }
     }
   };
@@ -199,69 +176,61 @@ export default function CelulasPage() {
     setIsModalOpen(false);
     setEditingCelula(null);
     setFormData({
-      nome: '',
-      lider: '',
-      supervisores: '',
-      rede_id: '',
-      telefone: '',
-      endereco: '',
-      quantidade_kg: 0
+      nome: '', lider: '', supervisores: '', rede_id: '',
+      telefone: '', endereco: '', quantidade_kg: 0
     });
   };
 
   const handleRecebimentoSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!selectedCelulaRecebimento) {
-      alert('Selecione uma célula!');
-      return;
-    }
+    if (!selectedCelulaRecebimento) return setToastMessage('Selecione uma célula!');
     
     const kgRecebido = Number(recebimentoKG || 0);
-    
-    if (kgRecebido <= 0) {
-      alert('A quantidade a receber deve ser maior que zero.');
-      return;
-    }
+    if (kgRecebido <= 0) return setToastMessage('A quantidade deve ser maior que zero.');
 
     try {
       const novaQuantidade = Number(selectedCelulaRecebimento.quantidade_kg) + kgRecebido;
       
-      // 1. Atualiza o TOTAL na tabela 'celulas'
       const { error } = await supabase
         .from('celulas')
         .update({ quantidade_kg: novaQuantidade })
         .eq('id', selectedCelulaRecebimento.id);
-
       if (error) throw error;
 
-      // 2. Registra o histórico na tabela 'recebimentos'
-      // AVISO: Isso pode falhar se 'produto_id' for obrigatório no seu BD
-      // e você não tiver um produto "genérico"
+      // Pegar o ID do produto "Doação Genérica" (vamos assumir ID=1)
+      // Se seu produto genérico tiver outro ID, mude aqui.
+      const PRODUTO_GENERICO_ID = 1; 
+
       const { error: recebimentoError } = await supabase
         .from('recebimentos')
         .insert([{
           celula_id: selectedCelulaRecebimento.id,
           quantidade: kgRecebido,
-          data_chegada: new Date(dataChegada).toISOString(), // Usar a data do input
+          data_chegada: new Date(dataChegada).toISOString(),
           observacoes: `Recebimento rápido via card - ${selectedCelulaRecebimento.nome}`,
-          // NOTA: Se o BD exigir 'produto_id', esta linha falhará.
-          // produto_id: 1 // (Ex: ID de um produto "Doação Genérica")
+          produto_id: PRODUTO_GENERICO_ID // <-- Necessário para o Dashboard ler
         }]);
 
       if (recebimentoError) {
-        console.warn('Erro ao registrar histórico (ignorado):', recebimentoError.message);
-        // Não bloqueia o processo, mas avisa no console
-        // Isso acontece se 'produto_id' for obrigatório
+        console.error('Erro ao registrar histórico (CRÍTICO):', recebimentoError.message);
+        setToastMessage('Erro ao salvar no histórico: ' + recebimentoError.message);
+        // Precisamos reverter a soma do KG total se o histórico falhar
+         await supabase
+          .from('celulas')
+          .update({ quantidade_kg: selectedCelulaRecebimento.quantidade_kg }) // Volta ao valor antigo
+          .eq('id', selectedCelulaRecebimento.id);
+        return;
       }
 
       await carregarDados();
-      alert(`Recebimento de ${kgRecebido} kg registrado para ${selectedCelulaRecebimento.nome}!`);
+      
+      // --- TROCADO O ALERT PELO TOAST ---
+      setToastMessage(`Recebimento de ${kgRecebido} kg registrado!`);
       handleCloseRecebimentoModal();
       
     } catch (error: any) {
       console.error('Erro ao registrar recebimento:', error);
-      alert('Erro ao registrar recebimento: ' + error.message);
+      setToastMessage('Erro: ' + error.message);
     }
   };
 
@@ -272,7 +241,6 @@ export default function CelulasPage() {
     setDataChegada(new Date().toISOString().split('T')[0]);
   };
 
-  // AJUSTE: Nova função para fechar modal atual e abrir modal de edição
   const handleRequestEdit = (celula: Celula) => {
     if (celula) {
       handleCloseRecebimentoModal(); 
@@ -300,8 +268,12 @@ export default function CelulasPage() {
   }
 
   return (
-    // Re-adicionado o padding original
     <div className="p-6 max-w-7xl mx-auto">
+      {/* --- RENDERIZA O TOAST AQUI --- */}
+      {toastMessage && (
+        <Toast message={toastMessage} onClose={() => setToastMessage('')} />
+      )}
+
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <div>
@@ -311,7 +283,6 @@ export default function CelulasPage() {
           </h1>
           <p className="text-gray-600 mt-1">Gestão completa das células e seus recebimentos</p>
         </div>
-        
         <div className="flex gap-3">
           <button
             onClick={() => {
@@ -323,7 +294,6 @@ export default function CelulasPage() {
             <Plus size={20} />
             Adicionar Recebimento
           </button>
-          
           <button
             onClick={() => setIsModalOpen(true)}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
@@ -334,7 +304,7 @@ export default function CelulasPage() {
         </div>
       </div>
 
-      {/* Cards de Estatísticas (Layout original) */}
+      {/* Cards de Estatísticas */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
           <div className="flex items-center justify-between">
@@ -362,7 +332,6 @@ export default function CelulasPage() {
                 {celulas.length > 0 ? (totalKG / celulas.length).toFixed(1) : '0.0'} kg
               </p>
             </div>
-            {/* Ícone original que vi no seu print */}
             <Users className="text-purple-500" size={24} />
           </div>
         </div>
@@ -372,7 +341,6 @@ export default function CelulasPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {celulas.map((celula) => {
           const redeInfo = getRedeInfo(celula);
-          // Estilo original do card
           return (
             <div key={celula.id} className="bg-white rounded-lg shadow-md p-6 border-t-4" style={{ borderTopColor: redeInfo.hex || '#6B7280' }}>
               <div className="flex justify-between items-start mb-4">
@@ -394,26 +362,23 @@ export default function CelulasPage() {
                   </button>
                 </div>
               </div>
-              
               <div className="space-y-3 text-sm">
                 <div className="flex items-center gap-2">
-                  <UserCheck className="text-gray-500" size={16} /> {/* Cor original */}
+                  <UserCheck className="text-gray-500" size={16} />
                   <div>
                     <span className="font-medium text-gray-700">Líderes:</span>
                     <p className="text-gray-600">{celula.lider}</p>
                   </div>
                 </div>
-                
                 <div className="flex items-center gap-2">
-                  <Users className="text-gray-500" size={16} /> {/* Cor original */}
+                  <Users className="text-gray-500" size={16} />
                   <div>
                     <span className="font-medium text-gray-700">Supervisores:</span>
                     <p className="text-gray-600">{celula.supervisores}</p>
                   </div>
                 </div>
-                
                 <div className="flex items-center gap-2">
-                  <Palette className="text-gray-500" size={16} /> {/* Cor original */}
+                  <Palette className="text-gray-500" size={16} />
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-700">Rede:</span>
                     <div className="flex items-center gap-1">
@@ -425,9 +390,8 @@ export default function CelulasPage() {
                     </div>
                   </div>
                 </div>
-                
                 <div className="flex items-center gap-2">
-                  <Weight className="text-gray-500" size={16} /> {/* Cor original */}
+                  <Weight className="text-gray-500" size={16} />
                   <div>
                     <span className="font-medium text-gray-700">Quantidade:</span>
                     <span className="text-lg font-bold text-orange-600 ml-1">{celula.quantidade_kg} kg</span>
@@ -437,7 +401,6 @@ export default function CelulasPage() {
             </div>
           );
         })}
-        
         {celulas.length === 0 && (
           <div className="col-span-full text-center py-12">
             <Users className="mx-auto text-gray-400 mb-4" size={48} />
@@ -453,7 +416,7 @@ export default function CelulasPage() {
         )}
       </div>
 
-      {/* Modal de Cadastro/Edição (Layout original) */}
+      {/* Modal de Cadastro/Edição */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
@@ -468,17 +431,11 @@ export default function CelulasPage() {
                 <X size={24} />
               </button>
             </div>
-
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Todos os campos do formulário originais */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Célula *</label>
                 <input
-                  type="text"
-                  name="nome"
-                  value={formData.nome}
-                  onChange={handleInputChange}
-                  required
+                  type="text" name="nome" value={formData.nome} onChange={handleInputChange} required
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Ex: Célula Central"
                 />
@@ -486,11 +443,7 @@ export default function CelulasPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome dos Líderes *</label>
                 <input
-                  type="text"
-                  name="lider"
-                  value={formData.lider}
-                  onChange={handleInputChange}
-                  required
+                  type="text" name="lider" value={formData.lider} onChange={handleInputChange} required
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Ex: João e Maria Silva"
                 />
@@ -498,11 +451,7 @@ export default function CelulasPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome dos Supervisores *</label>
                 <input
-                  type="text"
-                  name="supervisores"
-                  value={formData.supervisores}
-                  onChange={handleInputChange}
-                  required
+                  type="text" name="supervisores" value={formData.supervisores} onChange={handleInputChange} required
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Ex: Pastor Pedro Santos"
                 />
@@ -510,27 +459,19 @@ export default function CelulasPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Cor da Rede *</label>
                 <select
-                  name="rede_id"
-                  value={formData.rede_id}
-                  onChange={handleInputChange}
-                  required
+                  name="rede_id" value={formData.rede_id} onChange={handleInputChange} required
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Selecione a rede</option>
                   {redes.map((rede) => (
-                    <option key={rede.id} value={rede.id}>
-                      {rede.cor}
-                    </option>
+                    <option key={rede.id} value={rede.id}>{rede.cor}</option>
                   ))}
                 </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
                 <input
-                  type="tel"
-                  name="telefone"
-                  value={formData.telefone}
-                  onChange={handleInputChange}
+                  type="tel" name="telefone" value={formData.telefone} onChange={handleInputChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="(41) 99999-9999"
                 />
@@ -538,10 +479,7 @@ export default function CelulasPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Endereço</label>
                 <textarea
-                  name="endereco"
-                  value={formData.endereco}
-                  onChange={handleInputChange}
-                  rows={2}
+                  name="endereco" value={formData.endereco} onChange={handleInputChange} rows={2}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Rua, número, bairro"
                 />
@@ -549,21 +487,15 @@ export default function CelulasPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de KG *</label>
                 <input
-                  type="number"
-                  name="quantidade_kg"
-                  value={formData.quantidade_kg}
-                  onChange={handleInputChange}
-                  min="0"
-                  step="0.1"
-                  required
+                  type="number" name="quantidade_kg" value={formData.quantidade_kg} onChange={handleInputChange}
+                  min="0" step="0.1" required
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="0.0"
                 />
               </div>
               <div className="flex gap-3 pt-4">
                 <button
-                  type="button"
-                  onClick={handleCloseModal}
+                  type="button" onClick={handleCloseModal}
                   className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
                 >
                   Cancelar
@@ -581,14 +513,12 @@ export default function CelulasPage() {
         </div>
       )}
 
-      {/* Modal de Recebimento (Com os ajustes) */}
+      {/* Modal de Recebimento */}
       {isRecebimentoModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-gray-900">
-                Adicionar Recebimento
-              </h2>
+              <h2 className="text-xl font-bold text-gray-900">Adicionar Recebimento</h2>
               <button
                 onClick={handleCloseRecebimentoModal}
                 className="text-gray-400 hover:text-gray-600"
@@ -596,7 +526,6 @@ export default function CelulasPage() {
                 <X size={24} />
               </button>
             </div>
-
             <form onSubmit={handleRecebimentoSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Selecionar Célula *</label>
@@ -611,16 +540,12 @@ export default function CelulasPage() {
                 >
                   <option value="">Selecione uma célula</option>
                   {celulas.map((celula) => (
-                    <option key={celula.id} value={celula.id}>
-                      {celula.nome}
-                    </option>
+                    <option key={celula.id} value={celula.id}>{celula.nome}</option>
                   ))}
                 </select>
               </div>
-
               {selectedCelulaRecebimento && (
                 <div className="bg-gray-50 p-4 rounded-lg space-y-2 relative">
-                  {/* AJUSTE: Botão de edição adicionado */}
                   <button
                     type="button"
                     onClick={() => handleRequestEdit(selectedCelulaRecebimento)}
@@ -629,7 +554,6 @@ export default function CelulasPage() {
                   >
                     <Edit2 size={18} />
                   </button>
-                
                   <h3 className="font-medium text-gray-900">Informações da Célula:</h3>
                   <div className="text-sm">
                     <span className="font-medium text-gray-700">Líderes:</span>
@@ -655,13 +579,10 @@ export default function CelulasPage() {
                   </div>
                 </div>
               )}
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de KG a Receber *</label>
                 <input
-                  // AJUSTE: Correção do "0"
-                  type="text"
-                  inputMode="decimal"
+                  type="text" inputMode="decimal"
                   value={recebimentoKG}
                   onChange={(e) => {
                     const valor = e.target.value;
@@ -669,17 +590,13 @@ export default function CelulasPage() {
                       setRecebimentoKG(valor);
                     }
                   }}
-                  min="0"
-                  step="0.1"
-                  required
+                  min="0" step="0.1" required
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                   placeholder="0.0"
                   onFocus={(e) => e.target.value === '0' && setRecebimentoKG('')}
                   onBlur={(e) => e.target.value === '' && setRecebimentoKG('0')}
                 />
               </div>
-
-              {/* AJUSTE: Campo de data adicionado */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Data do Recebimento *</label>
                 <input
@@ -690,7 +607,6 @@ export default function CelulasPage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
-
               {selectedCelulaRecebimento && (
                 <div className="bg-green-50 p-3 rounded-lg">
                   <div className="text-sm">
@@ -701,11 +617,9 @@ export default function CelulasPage() {
                   </div>
                 </div>
               )}
-
               <div className="flex gap-3 pt-4">
                 <button
-                  type="button"
-                  onClick={handleCloseRecebimentoModal}
+                  type="button" onClick={handleCloseRecebimentoModal}
                   className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
                 >
                   Cancelar
