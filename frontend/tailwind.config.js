@@ -1,8 +1,9 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
-    "./public/index.html",         // importante para Vite
-    "./src/**/*.{js,ts,jsx,tsx}"   // analisa todos os arquivos TS/TSX
+    "./index.html",
+    // Esta linha garante que o Tailwind vai ler TODOS os seus arquivos
+    "./src/**/*.{js,ts,jsx,tsx}", 
   ],
   theme: {
     extend: {},

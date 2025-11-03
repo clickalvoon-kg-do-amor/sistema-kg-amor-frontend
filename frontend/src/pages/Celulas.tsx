@@ -43,10 +43,10 @@ export default function CelulasPage() {
   const [editingCelula, setEditingCelula] = useState<Celula | null>(null);
   const [selectedCelulaRecebimento, setSelectedCelulaRecebimento] = useState<Celula | null>(null);
   
-  // AJUSTE 1: Mudar estado para string para permitir campo vazio e corrigir o "0"
+  // AJUSTE: Mudar estado para string para permitir campo vazio e corrigir o "0"
   const [recebimentoKG, setRecebimentoKG] = useState<string>('0');
   
-  // AJUSTE 3: Adicionar estado para a data do recebimento
+  // AJUSTE: Adicionar estado para a data do recebimento
   const [dataChegada, setDataChegada] = useState(new Date().toISOString().split('T')[0]);
 
   const [formData, setFormData] = useState<FormData>({
@@ -68,9 +68,6 @@ export default function CelulasPage() {
     try {
       setLoading(true);
       
-      console.log('Carregando dados do Supabase...');
-      
-      // Carregar redes primeiro
       const { data: redesData, error: redesError } = await supabase
         .from('redes')
         .select('*')
@@ -82,11 +79,8 @@ export default function CelulasPage() {
         alert('Erro ao carregar redes do banco de dados!');
         return;
       }
-
-      console.log('Redes carregadas:', redesData);
       setRedes(redesData || []);
       
-      // Carregar células com join das redes
       const { data: celulasData, error: celulasError } = await supabase
         .from('celulas')
         .select(`
@@ -105,8 +99,6 @@ export default function CelulasPage() {
         alert('Erro ao carregar células do banco de dados!');
         return;
       }
-      
-      console.log('Células carregadas:', celulasData);
       setCelulas(celulasData || []);
       
     } catch (error) {
@@ -129,8 +121,6 @@ export default function CelulasPage() {
     e.preventDefault();
     
     try {
-      console.log('Salvando célula...', formData);
-      
       const dadosParaSalvar = {
         nome: formData.nome,
         lider: formData.lider,
@@ -150,13 +140,7 @@ export default function CelulasPage() {
           .eq('id', editingCelula.id)
           .select();
 
-        if (error) {
-          console.error('Erro ao atualizar célula:', error);
-          alert('Erro ao atualizar célula: ' + error.message);
-          return;
-        }
-        
-        console.log('Célula atualizada:', data);
+        if (error) throw error;
         alert('Célula atualizada com sucesso!');
       } else {
         // Criar nova célula
@@ -165,23 +149,16 @@ export default function CelulasPage() {
           .insert([dadosParaSalvar])
           .select();
 
-        if (error) {
-          console.error('Erro ao criar célula:', error);
-          alert('Erro ao criar célula: ' + error.message);
-          return;
-        }
-        
-        console.log('Célula criada:', data);
+        if (error) throw error;
         alert('Célula criada com sucesso!');
       }
 
-      // Recarregar dados
       await carregarDados();
       handleCloseModal();
       
-    } catch (error) {
-      console.error('Erro inesperado ao salvar célula:', error);
-      alert('Erro inesperado ao salvar célula!');
+    } catch (error: any) {
+      console.error('Erro ao salvar célula:', error);
+      alert('Erro ao salvar célula: ' + error.message);
     }
   };
 
@@ -207,17 +184,13 @@ export default function CelulasPage() {
           .update({ ativo: false })  // Soft delete
           .eq('id', celulaId);
 
-        if (error) {
-          console.error('Erro ao excluir célula:', error);
-          alert('Erro ao excluir célula: ' + error.message);
-          return;
-        }
+        if (error) throw error;
         
         await carregarDados();
         alert('Célula excluída com sucesso!');
-      } catch (error) {
-        console.error('Erro inesperado ao excluir célula:', error);
-        alert('Erro inesperado ao excluir célula!');
+      } catch (error: any) {
+        console.error('Erro ao excluir célula:', error);
+        alert('Erro ao excluir célula: ' + error.message);
       }
     }
   };
@@ -244,7 +217,6 @@ export default function CelulasPage() {
       return;
     }
     
-    // AJUSTE 1: Garantir que o KG a receber seja tratado como número
     const kgRecebido = Number(recebimentoKG || 0);
     
     if (kgRecebido <= 0) {
@@ -253,70 +225,63 @@ export default function CelulasPage() {
     }
 
     try {
-      console.log('Registrando recebimento...', {
-        celula: selectedCelulaRecebimento.nome,
-        kg: kgRecebido
-      });
-      
       const novaQuantidade = Number(selectedCelulaRecebimento.quantidade_kg) + kgRecebido;
       
+      // 1. Atualiza o TOTAL na tabela 'celulas'
       const { error } = await supabase
         .from('celulas')
         .update({ quantidade_kg: novaQuantidade })
         .eq('id', selectedCelulaRecebimento.id);
 
-      if (error) {
-        console.error('Erro ao registrar recebimento:', error);
-        alert('Erro ao registrar recebimento: ' + error.message);
-        return;
-      }
+      if (error) throw error;
 
-      // AJUSTE 3: Usar a data do estado ao registrar histórico
+      // 2. Registra o histórico na tabela 'recebimentos'
+      // AVISO: Isso pode falhar se 'produto_id' for obrigatório no seu BD
+      // e você não tiver um produto "genérico"
       const { error: recebimentoError } = await supabase
         .from('recebimentos')
         .insert([{
           celula_id: selectedCelulaRecebimento.id,
           quantidade: kgRecebido,
           data_chegada: new Date(dataChegada).toISOString(), // Usar a data do input
-          observacoes: `Recebimento via sistema - ${selectedCelulaRecebimento.nome}`
+          observacoes: `Recebimento rápido via card - ${selectedCelulaRecebimento.nome}`,
+          // NOTA: Se o BD exigir 'produto_id', esta linha falhará.
+          // produto_id: 1 // (Ex: ID de um produto "Doação Genérica")
         }]);
 
       if (recebimentoError) {
-        console.warn('Erro ao registrar histórico:', recebimentoError);
-        // Não bloqueia o processo, só avisa
+        console.warn('Erro ao registrar histórico (ignorado):', recebimentoError.message);
+        // Não bloqueia o processo, mas avisa no console
+        // Isso acontece se 'produto_id' for obrigatório
       }
 
       await carregarDados();
       alert(`Recebimento de ${kgRecebido} kg registrado para ${selectedCelulaRecebimento.nome}!`);
       handleCloseRecebimentoModal();
       
-    } catch (error) {
-      console.error('Erro inesperado ao registrar recebimento:', error);
-      alert('Erro inesperado ao registrar recebimento!');
+    } catch (error: any) {
+      console.error('Erro ao registrar recebimento:', error);
+      alert('Erro ao registrar recebimento: ' + error.message);
     }
   };
 
   const handleCloseRecebimentoModal = () => {
     setIsRecebimentoModalOpen(false);
     setSelectedCelulaRecebimento(null);
-    setRecebimentoKG('0'); // AJUSTE 1: Resetar para string '0'
-    setDataChegada(new Date().toISOString().split('T')[0]); // AJUSTE 3: Resetar data
+    setRecebimentoKG('0');
+    setDataChegada(new Date().toISOString().split('T')[0]);
   };
 
-  // AJUSTE 2: Nova função para fechar modal atual e abrir modal de edição
+  // AJUSTE: Nova função para fechar modal atual e abrir modal de edição
   const handleRequestEdit = (celula: Celula) => {
     if (celula) {
-      handleCloseRecebimentoModal(); // Fecha o modal de recebimento
-      handleEdit(celula); // Abre o modal de edição com os dados da célula
+      handleCloseRecebimentoModal(); 
+      handleEdit(celula); 
     }
   };
 
   const getRedeInfo = (celula: Celula) => {
-    // Primeiro tenta pelo join
-    if (celula.redes) {
-      return celula.redes;
-    }
-    // Senão busca na lista local
+    if (celula.redes) return celula.redes;
     const rede = redes.find(r => r.id === celula.rede_id);
     return rede || { cor: 'Indefinida', hex: '#6B7280' };
   };
@@ -335,6 +300,7 @@ export default function CelulasPage() {
   }
 
   return (
+    // Re-adicionado o padding original
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
@@ -349,7 +315,6 @@ export default function CelulasPage() {
         <div className="flex gap-3">
           <button
             onClick={() => {
-              // AJUSTE 3: Resetar data ao abrir modal
               setDataChegada(new Date().toISOString().split('T')[0]);
               setIsRecebimentoModalOpen(true);
             }}
@@ -369,7 +334,7 @@ export default function CelulasPage() {
         </div>
       </div>
 
-      {/* Cards de Estatísticas */}
+      {/* Cards de Estatísticas (Layout original) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
           <div className="flex items-center justify-between">
@@ -380,7 +345,6 @@ export default function CelulasPage() {
             <Users className="text-blue-500" size={24} />
           </div>
         </div>
-        
         <div className="bg-white p-6 rounded-lg shadow border-l-4 border-green-500">
           <div className="flex items-center justify-between">
             <div>
@@ -390,7 +354,6 @@ export default function CelulasPage() {
             <Weight className="text-green-500" size={24} />
           </div>
         </div>
-        
         <div className="bg-white p-6 rounded-lg shadow border-l-4 border-purple-500">
           <div className="flex items-center justify-between">
             <div>
@@ -399,7 +362,8 @@ export default function CelulasPage() {
                 {celulas.length > 0 ? (totalKG / celulas.length).toFixed(1) : '0.0'} kg
               </p>
             </div>
-            <Palette className="text-purple-500" size={24} />
+            {/* Ícone original que vi no seu print */}
+            <Users className="text-purple-500" size={24} />
           </div>
         </div>
       </div>
@@ -408,8 +372,9 @@ export default function CelulasPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {celulas.map((celula) => {
           const redeInfo = getRedeInfo(celula);
+          // Estilo original do card
           return (
-            <div key={celula.id} className="bg-white rounded-lg shadow-md p-6 border-t-4" style={{ borderTopColor: redeInfo.hex }}>
+            <div key={celula.id} className="bg-white rounded-lg shadow-md p-6 border-t-4" style={{ borderTopColor: redeInfo.hex || '#6B7280' }}>
               <div className="flex justify-between items-start mb-4">
                 <h3 className="text-xl font-semibold text-gray-900">{celula.nome}</h3>
                 <div className="flex gap-2">
@@ -432,7 +397,7 @@ export default function CelulasPage() {
               
               <div className="space-y-3 text-sm">
                 <div className="flex items-center gap-2">
-                  <UserCheck className="text-blue-500" size={16} />
+                  <UserCheck className="text-gray-500" size={16} /> {/* Cor original */}
                   <div>
                     <span className="font-medium text-gray-700">Líderes:</span>
                     <p className="text-gray-600">{celula.lider}</p>
@@ -440,7 +405,7 @@ export default function CelulasPage() {
                 </div>
                 
                 <div className="flex items-center gap-2">
-                  <Users className="text-green-500" size={16} />
+                  <Users className="text-gray-500" size={16} /> {/* Cor original */}
                   <div>
                     <span className="font-medium text-gray-700">Supervisores:</span>
                     <p className="text-gray-600">{celula.supervisores}</p>
@@ -448,13 +413,13 @@ export default function CelulasPage() {
                 </div>
                 
                 <div className="flex items-center gap-2">
-                  <Palette className="text-purple-500" size={16} />
+                  <Palette className="text-gray-500" size={16} /> {/* Cor original */}
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-700">Rede:</span>
                     <div className="flex items-center gap-1">
                       <div 
                         className="w-4 h-4 rounded-full border border-gray-300" 
-                        style={{ backgroundColor: redeInfo.hex }}
+                        style={{ backgroundColor: redeInfo.hex || '#6B7280' }}
                       ></div>
                       <span className="text-gray-600">{redeInfo.cor}</span>
                     </div>
@@ -462,7 +427,7 @@ export default function CelulasPage() {
                 </div>
                 
                 <div className="flex items-center gap-2">
-                  <Weight className="text-orange-500" size={16} />
+                  <Weight className="text-gray-500" size={16} /> {/* Cor original */}
                   <div>
                     <span className="font-medium text-gray-700">Quantidade:</span>
                     <span className="text-lg font-bold text-orange-600 ml-1">{celula.quantidade_kg} kg</span>
@@ -488,7 +453,7 @@ export default function CelulasPage() {
         )}
       </div>
 
-      {/* Modal de Cadastro/Edição */}
+      {/* Modal de Cadastro/Edição (Layout original) */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
@@ -505,10 +470,9 @@ export default function CelulasPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Todos os campos do formulário originais */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nome da Célula *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Célula *</label>
                 <input
                   type="text"
                   name="nome"
@@ -519,11 +483,8 @@ export default function CelulasPage() {
                   placeholder="Ex: Célula Central"
                 />
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nome dos Líderes *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome dos Líderes *</label>
                 <input
                   type="text"
                   name="lider"
@@ -534,11 +495,8 @@ export default function CelulasPage() {
                   placeholder="Ex: João e Maria Silva"
                 />
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nome dos Supervisores *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome dos Supervisores *</label>
                 <input
                   type="text"
                   name="supervisores"
@@ -549,11 +507,8 @@ export default function CelulasPage() {
                   placeholder="Ex: Pastor Pedro Santos"
                 />
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Cor da Rede *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cor da Rede *</label>
                 <select
                   name="rede_id"
                   value={formData.rede_id}
@@ -569,11 +524,8 @@ export default function CelulasPage() {
                   ))}
                 </select>
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Telefone
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
                 <input
                   type="tel"
                   name="telefone"
@@ -583,11 +535,8 @@ export default function CelulasPage() {
                   placeholder="(41) 99999-9999"
                 />
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Endereço
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Endereço</label>
                 <textarea
                   name="endereco"
                   value={formData.endereco}
@@ -597,11 +546,8 @@ export default function CelulasPage() {
                   placeholder="Rua, número, bairro"
                 />
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Quantidade de KG *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de KG *</label>
                 <input
                   type="number"
                   name="quantidade_kg"
@@ -614,7 +560,6 @@ export default function CelulasPage() {
                   placeholder="0.0"
                 />
               </div>
-
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"
@@ -636,7 +581,7 @@ export default function CelulasPage() {
         </div>
       )}
 
-      {/* Modal de Recebimento */}
+      {/* Modal de Recebimento (Com os ajustes) */}
       {isRecebimentoModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
@@ -654,9 +599,7 @@ export default function CelulasPage() {
 
             <form onSubmit={handleRecebimentoSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Selecionar Célula *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Selecionar Célula *</label>
                 <select
                   value={selectedCelulaRecebimento?.id || ''}
                   onChange={(e) => {
@@ -677,7 +620,7 @@ export default function CelulasPage() {
 
               {selectedCelulaRecebimento && (
                 <div className="bg-gray-50 p-4 rounded-lg space-y-2 relative">
-                  {/* AJUSTE 2: Botão de edição adicionado */}
+                  {/* AJUSTE: Botão de edição adicionado */}
                   <button
                     type="button"
                     onClick={() => handleRequestEdit(selectedCelulaRecebimento)}
@@ -688,17 +631,14 @@ export default function CelulasPage() {
                   </button>
                 
                   <h3 className="font-medium text-gray-900">Informações da Célula:</h3>
-                  
                   <div className="text-sm">
                     <span className="font-medium text-gray-700">Líderes:</span>
                     <span className="ml-1 text-gray-600">{selectedCelulaRecebimento.lider}</span>
                   </div>
-                  
                   <div className="text-sm">
                     <span className="font-medium text-gray-700">Supervisores:</span>
                     <span className="ml-1 text-gray-600">{selectedCelulaRecebimento.supervisores}</span>
                   </div>
-                  
                   <div className="text-sm flex items-center gap-2">
                     <span className="font-medium text-gray-700">Rede:</span>
                     <div className="flex items-center gap-1">
@@ -709,7 +649,6 @@ export default function CelulasPage() {
                       <span className="text-gray-600">{getRedeInfo(selectedCelulaRecebimento).cor}</span>
                     </div>
                   </div>
-                  
                   <div className="text-sm">
                     <span className="font-medium text-gray-700">KG Atual:</span>
                     <span className="ml-1 text-orange-600 font-bold">{selectedCelulaRecebimento.quantidade_kg} kg</span>
@@ -718,17 +657,13 @@ export default function CelulasPage() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Quantidade de KG a Receber *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de KG a Receber *</label>
                 <input
-                  type="number"
-                  // AJUSTE 1: Mudar para 'text' no type para melhor controle, mas manter inputmode numérico
+                  // AJUSTE: Correção do "0"
                   type="text"
                   inputMode="decimal"
                   value={recebimentoKG}
                   onChange={(e) => {
-                    // AJUSTE 1: Permitir campo vazio e apenas números/ponto
                     const valor = e.target.value;
                     if (valor === '' || /^[0-9]*\.?[0-9]*$/.test(valor)) {
                       setRecebimentoKG(valor);
@@ -739,18 +674,14 @@ export default function CelulasPage() {
                   required
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                   placeholder="0.0"
-                  // Limpa o '0' inicial ao focar
                   onFocus={(e) => e.target.value === '0' && setRecebimentoKG('')}
-                  // Retorna o '0' se o campo for deixado vazio
                   onBlur={(e) => e.target.value === '' && setRecebimentoKG('0')}
                 />
               </div>
 
-              {/* AJUSTE 3: Campo de data adicionado */}
+              {/* AJUSTE: Campo de data adicionado */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Data do Recebimento *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Data do Recebimento *</label>
                 <input
                   type="date"
                   value={dataChegada}
@@ -765,7 +696,6 @@ export default function CelulasPage() {
                   <div className="text-sm">
                     <span className="font-medium text-green-800">Novo Total:</span>
                     <span className="ml-1 text-green-700 font-bold">
-                      {/* AJUSTE 1: Garantir que o cálculo use o valor numérico */}
                       {(Number(selectedCelulaRecebimento.quantidade_kg) + Number(recebimentoKG || 0)).toFixed(1)} kg
                     </span>
                   </div>
