@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Save, X, Users, UserCheck, Palette, Weight, Trash2 } from 'lucide-react';
+import { Plus, Edit2, Save, X, Users, UserCheck, Palette, Weight, Trash2, Calendar } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
 interface Rede {
@@ -42,7 +42,13 @@ export default function CelulasPage() {
   const [isRecebimentoModalOpen, setIsRecebimentoModalOpen] = useState(false);
   const [editingCelula, setEditingCelula] = useState<Celula | null>(null);
   const [selectedCelulaRecebimento, setSelectedCelulaRecebimento] = useState<Celula | null>(null);
-  const [recebimentoKG, setRecebimentoKG] = useState(0);
+  
+  // AJUSTE 1: Mudar estado para string para permitir campo vazio e corrigir o "0"
+  const [recebimentoKG, setRecebimentoKG] = useState<string>('0');
+  
+  // AJUSTE 3: Adicionar estado para a data do recebimento
+  const [dataChegada, setDataChegada] = useState(new Date().toISOString().split('T')[0]);
+
   const [formData, setFormData] = useState<FormData>({
     nome: '',
     lider: '',
@@ -237,14 +243,22 @@ export default function CelulasPage() {
       alert('Selecione uma célula!');
       return;
     }
+    
+    // AJUSTE 1: Garantir que o KG a receber seja tratado como número
+    const kgRecebido = Number(recebimentoKG || 0);
+    
+    if (kgRecebido <= 0) {
+      alert('A quantidade a receber deve ser maior que zero.');
+      return;
+    }
 
     try {
       console.log('Registrando recebimento...', {
         celula: selectedCelulaRecebimento.nome,
-        kg: recebimentoKG
+        kg: kgRecebido
       });
       
-      const novaQuantidade = Number(selectedCelulaRecebimento.quantidade_kg) + Number(recebimentoKG);
+      const novaQuantidade = Number(selectedCelulaRecebimento.quantidade_kg) + kgRecebido;
       
       const { error } = await supabase
         .from('celulas')
@@ -257,13 +271,13 @@ export default function CelulasPage() {
         return;
       }
 
-      // Registrar histórico na tabela recebimentos
+      // AJUSTE 3: Usar a data do estado ao registrar histórico
       const { error: recebimentoError } = await supabase
         .from('recebimentos')
         .insert([{
           celula_id: selectedCelulaRecebimento.id,
-          quantidade: recebimentoKG,
-          data_chegada: new Date().toISOString(),
+          quantidade: kgRecebido,
+          data_chegada: new Date(dataChegada).toISOString(), // Usar a data do input
           observacoes: `Recebimento via sistema - ${selectedCelulaRecebimento.nome}`
         }]);
 
@@ -273,7 +287,7 @@ export default function CelulasPage() {
       }
 
       await carregarDados();
-      alert(`Recebimento de ${recebimentoKG} kg registrado para ${selectedCelulaRecebimento.nome}!`);
+      alert(`Recebimento de ${kgRecebido} kg registrado para ${selectedCelulaRecebimento.nome}!`);
       handleCloseRecebimentoModal();
       
     } catch (error) {
@@ -285,7 +299,16 @@ export default function CelulasPage() {
   const handleCloseRecebimentoModal = () => {
     setIsRecebimentoModalOpen(false);
     setSelectedCelulaRecebimento(null);
-    setRecebimentoKG(0);
+    setRecebimentoKG('0'); // AJUSTE 1: Resetar para string '0'
+    setDataChegada(new Date().toISOString().split('T')[0]); // AJUSTE 3: Resetar data
+  };
+
+  // AJUSTE 2: Nova função para fechar modal atual e abrir modal de edição
+  const handleRequestEdit = (celula: Celula) => {
+    if (celula) {
+      handleCloseRecebimentoModal(); // Fecha o modal de recebimento
+      handleEdit(celula); // Abre o modal de edição com os dados da célula
+    }
   };
 
   const getRedeInfo = (celula: Celula) => {
@@ -325,7 +348,11 @@ export default function CelulasPage() {
         
         <div className="flex gap-3">
           <button
-            onClick={() => setIsRecebimentoModalOpen(true)}
+            onClick={() => {
+              // AJUSTE 3: Resetar data ao abrir modal
+              setDataChegada(new Date().toISOString().split('T')[0]);
+              setIsRecebimentoModalOpen(true);
+            }}
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
           >
             <Plus size={20} />
@@ -389,12 +416,14 @@ export default function CelulasPage() {
                   <button
                     onClick={() => handleEdit(celula)}
                     className="text-gray-400 hover:text-blue-600 transition-colors"
+                    title="Editar Célula"
                   >
                     <Edit2 size={18} />
                   </button>
                   <button
                     onClick={() => handleDelete(celula.id)}
                     className="text-gray-400 hover:text-red-600 transition-colors"
+                    title="Excluir Célula"
                   >
                     <Trash2 size={18} />
                   </button>
@@ -647,7 +676,17 @@ export default function CelulasPage() {
               </div>
 
               {selectedCelulaRecebimento && (
-                <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                <div className="bg-gray-50 p-4 rounded-lg space-y-2 relative">
+                  {/* AJUSTE 2: Botão de edição adicionado */}
+                  <button
+                    type="button"
+                    onClick={() => handleRequestEdit(selectedCelulaRecebimento)}
+                    className="absolute top-3 right-3 text-gray-400 hover:text-blue-600 transition-colors"
+                    title="Editar esta Célula"
+                  >
+                    <Edit2 size={18} />
+                  </button>
+                
                   <h3 className="font-medium text-gray-900">Informações da Célula:</h3>
                   
                   <div className="text-sm">
@@ -684,22 +723,50 @@ export default function CelulasPage() {
                 </label>
                 <input
                   type="number"
+                  // AJUSTE 1: Mudar para 'text' no type para melhor controle, mas manter inputmode numérico
+                  type="text"
+                  inputMode="decimal"
                   value={recebimentoKG}
-                  onChange={(e) => setRecebimentoKG(parseFloat(e.target.value) || 0)}
+                  onChange={(e) => {
+                    // AJUSTE 1: Permitir campo vazio e apenas números/ponto
+                    const valor = e.target.value;
+                    if (valor === '' || /^[0-9]*\.?[0-9]*$/.test(valor)) {
+                      setRecebimentoKG(valor);
+                    }
+                  }}
                   min="0"
                   step="0.1"
                   required
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                   placeholder="0.0"
+                  // Limpa o '0' inicial ao focar
+                  onFocus={(e) => e.target.value === '0' && setRecebimentoKG('')}
+                  // Retorna o '0' se o campo for deixado vazio
+                  onBlur={(e) => e.target.value === '' && setRecebimentoKG('0')}
                 />
               </div>
 
-              {selectedCelulaRecebimento && recebimentoKG > 0 && (
+              {/* AJUSTE 3: Campo de data adicionado */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Data do Recebimento *
+                </label>
+                <input
+                  type="date"
+                  value={dataChegada}
+                  onChange={(e) => setDataChegada(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+
+              {selectedCelulaRecebimento && (
                 <div className="bg-green-50 p-3 rounded-lg">
                   <div className="text-sm">
                     <span className="font-medium text-green-800">Novo Total:</span>
                     <span className="ml-1 text-green-700 font-bold">
-                      {(Number(selectedCelulaRecebimento.quantidade_kg) + Number(recebimentoKG)).toFixed(1)} kg
+                      {/* AJUSTE 1: Garantir que o cálculo use o valor numérico */}
+                      {(Number(selectedCelulaRecebimento.quantidade_kg) + Number(recebimentoKG || 0)).toFixed(1)} kg
                     </span>
                   </div>
                 </div>
