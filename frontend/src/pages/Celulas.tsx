@@ -567,6 +567,7 @@ export default function CelulasPage() {
                 />
               </div>
               <div>
+                {/* LINHA 492 - CORRIGIDA */}
                 <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de KG *</label>
                 <input
                   type="number" name="quantidade_kg" value={formData.quantidade_kg} onChange={handleInputChange}
@@ -587,7 +588,7 @@ export default function CelulasPage() {
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
                 >
                   <Save size={16} />
-                  Atualizar
+                  {editingCelula ? 'Atualizar' : 'Salvar'}
                 </button>
               </div>
             </form>
@@ -711,4 +712,47 @@ export default function CelulasPage() {
                 />
               </div>
 
-              {/* --- CAMPO DE OBS
+              {/* --- CAMPO DE OBSERVAÇÃO --- */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
+                <textarea
+                  value={observacao}
+                  onChange={(e) => setObservacao(e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Ex: Produtos vencidos, pacote rasgado, etc."
+                />
+              </div>
+              
+              {selectedCelulaRecebimento && (
+                <div className="bg-green-50 p-3 rounded-lg">
+                  <div className="text-sm">
+                    <span className="font-medium text-green-800">Novo Total (na Célula):</span>
+                    <span className="ml-1 text-green-700 font-bold">
+                      {(Number(selectedCelulaRecebimento.quantidade_kg) + Number(recebimentoKG || 0)).toFixed(1)} kg
+                    </span>
+                  </div>
+                </div>
+              )}
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button" onClick={handleCloseRecebimentoModal}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Save size={16} />
+                  Registrar Recebimento
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
