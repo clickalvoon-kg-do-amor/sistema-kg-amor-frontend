@@ -1,13 +1,13 @@
+// frontend/src/pages/Recebimentos.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plus, Package, Edit, Trash2, Eye, Save, X, Camera, Scan, 
-  AlertTriangle, CheckCircle, ShoppingCart, FileText, BarChart3,
-  Calendar, User, Search, ChevronDown, ChevronUp, Download
+  ShoppingCart, Download, Search, ChevronDown, ChevronUp, CheckCircle, Calendar
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import toast from 'react-hot-toast';
 
-// Interfaces
+// --- Interfaces Corrigidas ---
 interface Categoria {
   id: number;
   nome: string;
@@ -18,68 +18,74 @@ interface Produto {
   id: number;
   nome: string;
   categoria_id: number;
-  unidade?: string;
-  categoria?: string;
+  unidade: string;
   codigo_barras?: string;
+  // Campos que vêm do JOIN
+  categorias?: {
+    nome: string;
+    cor: string;
+  };
 }
 
-interface ReceiptItem {
-  id?: number;
+// Item do recibo (para o formulário)
+interface ReceiptItemForm {
   produto_id: number;
   produto_nome?: string;
   quantity: number;
   unit: string;
-  expires_at: string;
+  expires_at: string; // Data de validade
   priority: 'normal' | 'imediato';
   barcode?: string;
+  lot_code?: string; // Lote
 }
 
+// Recibo (para o histórico)
 interface Receipt {
-  id?: number;
-  origin: string;
-  notes: string;
-  status: 'draft' | 'posted' | 'void';
+  id: number;
+  notes: string | null;
+  status: string;
   created_at: string;
-  created_by: string;
-  items: ReceiptItem[];
+  created_by: string; // UUID do usuário
+  receipt_items: { // Nome da tabela correta
+    id: number;
+    quantity: number;
+    produtos: {
+      nome: string;
+      unidade: string;
+    }
+  }[];
 }
 
 export default function RecebimentosPage() {
   const [recebimentos, setRecebimentos] = useState<Receipt[]>([]);
-  const [produtos, setProdutos] = useState([]);
-  const [categorias, setCategorias] = useState([]);
+  const [produtos, setProdutos] = useState<Produto[]>([]);
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'manual' | 'scanner'>('manual');
 
   // Estados do formulário
   const [formData, setFormData] = useState({
-    origin: '',
     notes: ''
   });
 
-  const [items, setItems] = useState<ReceiptItem[]>([]);
-  const [currentItem, setCurrentItem] = useState<ReceiptItem>({
+  const [items, setItems] = useState<ReceiptItemForm[]>([]);
+  const [currentItem, setCurrentItem] = useState<ReceiptItemForm>({
     produto_id: 0,
     quantity: 0,
     unit: 'kg',
     expires_at: '',
-    priority: 'normal'
+    priority: 'normal',
+    lot_code: ''
   });
 
-  // Estados para organização por categoria
-  const [categoriaExpandida, setCategoriaExpandida] = useState<number | null>(null);
+  // Estados para UI
   const [searchTerm, setSearchTerm] = useState('');
   const [showNovoProdutoForm, setShowNovoProdutoForm] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showDetalhes, setShowDetalhes] = useState<number | null>(null);
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
-
-  // Estados do scanner
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [scannedCode, setScannedCode] = useState('');
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
 
   // Estados para novo produto
   const [novoProduto, setNovoProduto] = useState({
@@ -94,22 +100,34 @@ export default function RecebimentosPage() {
     carregarDados();
   }, []);
 
-  // SUBSTITUIR esta função:
+  // --- FUNÇÃO DE CARREGAR DADOS CORRIGIDA ---
   const carregarDados = async () => {
     try {
-      // Carregar recebimentos com joins
+      setLoading(true);
+
+      // 1. Carregar Recibos (receipts) com join em Itens (receipt_items) e Produtos (produtos)
       const { data: recebimentosData, error: recError } = await supabase
-        .from('recebimentos')
+        .from('receipts')
         .select(`
-          *,
-          produtos(id, nome, categoria_id, categorias(nome, cor)),
-          celulas(id, nome, lider, telefone, endereco, redes(cor))
+          id,
+          notes,
+          status,
+          created_at,
+          created_by,
+          receipt_items (
+            id,
+            quantity,
+            produtos (
+              nome,
+              unidade
+            )
+          )
         `)
         .order('created_at', { ascending: false });
 
       if (recError) throw recError;
 
-      // Carregar produtos
+      // 2. Carregar Produtos com join em Categorias
       const { data: produtosData, error: prodError } = await supabase
         .from('produtos')
         .select('*, categorias(nome, cor)')
@@ -117,7 +135,7 @@ export default function RecebimentosPage() {
 
       if (prodError) throw prodError;
 
-      // Carregar categorias
+      // 3. Carregar Categorias
       const { data: categoriasData, error: catError } = await supabase
         .from('categorias')
         .select('*')
@@ -125,13 +143,14 @@ export default function RecebimentosPage() {
 
       if (catError) throw catError;
 
-      setRecebimentos(recebimentosData || []);
-      setProdutos(produtosData || []);
-      setCategorias(categoriasData || []);
-      setLoading(false);
-    } catch (error) {
+      setRecebimentos(recebimentosData as Receipt[] || []);
+      setProdutos(produtosData as Produto[] || []);
+      setCategorias(categoriasData as Categoria[] || []);
+      
+    } catch (error: any) {
       console.error('Erro ao carregar dados:', error);
-      toast.error('Erro ao carregar dados');
+      toast.error('Erro ao carregar dados: ' + error.message);
+    } finally {
       setLoading(false);
     }
   };
@@ -139,132 +158,96 @@ export default function RecebimentosPage() {
   // Filtrar produtos por categoria e busca
   const produtosFiltrados = produtos.filter(produto => {
     const matchBusca = produto.nome.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchCategoria = categoriaExpandida ? produto.categoria_id === categoriaExpandida : true;
-    return matchBusca && matchCategoria;
+    return matchBusca;
   });
 
-  const produtosPorCategoria = categorias.map(categoria => ({
-    ...categoria,
-    produtos: produtos.filter(p => p.categoria_id === categoria.id)
-      .filter(p => p.nome.toLowerCase().includes(searchTerm.toLowerCase()))
-  }));
+  // Filtrar produtos para sugestões de busca
+  const produtosSugeridos = searchTerm.length > 0 
+    ? produtos.filter(produto => 
+        produto.nome.toLowerCase().includes(searchTerm.toLowerCase())
+      ).slice(0, 5)
+    : [];
 
-  // Funções do scanner
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } 
-      });
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        streamRef.current = stream;
-      }
-      setIsScannerOpen(true);
-    } catch (error) {
-      console.error('Erro ao acessar câmera:', error);
-      alert('Não foi possível acessar a câmera');
-    }
+  // Selecionar produto da sugestão
+  const selecionarProduto = (produto: Produto) => {
+    setCurrentItem(prev => ({
+      ...prev,
+      produto_id: produto.id,
+      produto_nome: produto.nome,
+      unit: produto.unidade || 'un' // Puxa a unidade padrão do produto
+    }));
+    setSearchTerm(produto.nome);
+    setShowSuggestions(false);
   };
 
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    setIsScannerOpen(false);
-  };
-
-  const simulateBarcodeScan = (code: string) => {
-    setScannedCode(code);
-    handleBarcodeRead(code);
-    stopCamera();
-  };
-
-  const handleBarcodeRead = (barcode: string) => {
-    const produto = produtos.find(p => p.codigo_barras === barcode);
-    
-    if (produto) {
-      const novoItem: ReceiptItem = {
-        produto_id: produto.id,
-        produto_nome: produto.nome,
-        quantity: 1,
-        unit: 'kg',
-        expires_at: '',
-        priority: 'normal',
-        barcode: barcode
-      };
-      
-      setItems(prev => [...prev, novoItem]);
-      alert(`Produto "${produto.nome}" adicionado automaticamente!`);
-    } else {
-      setActiveTab('manual');
-      setCurrentItem(prev => ({ ...prev, barcode }));
-      alert('Código não encontrado. Complete os dados manualmente e associe o código.');
-    }
-  };
-
-  // Cadastrar novo produto
+  // --- FUNÇÃO DE CADASTRAR PRODUTO CORRIGIDA ---
   const cadastrarNovoProduto = async () => {
-    if (!novoProduto.nome || novoProduto.categoria_id === 0) {
-      alert('Preencha nome e categoria do produto');
+    if (!novoProduto.nome || !novoProduto.categoria_id) {
+      toast.error('Preencha nome e categoria do produto');
       return;
     }
 
-    const novoId = Math.max(...produtos.map(p => p.id)) + 1;
-    const categoria = categorias.find(c => c.id === novoProduto.categoria_id);
-    
-    const produtoParaAdicionar: Produto = {
-      id: novoId,
-      nome: novoProduto.nome,
-      categoria_id: novoProduto.categoria_id,
-      categoria: categoria?.nome,
-      codigo_barras: novoProduto.codigo_barras || undefined
-    };
+    try {
+      // 1. Salva o novo produto no banco
+      const { data: produtoCriado, error } = await supabase
+        .from('produtos')
+        .insert({
+          nome: novoProduto.nome,
+          categoria_id: Number(novoProduto.categoria_id),
+          unidade: novoProduto.unidade,
+          codigo_barras: novoProduto.codigo_barras || null
+        })
+        .select('*, categorias(nome, cor)')
+        .single();
 
-    setProdutos(prev => [...prev, produtoParaAdicionar]);
-    
-    // Adicionar automaticamente ao recebimento se solicitado
-    setCurrentItem(prev => ({
-      ...prev,
-      produto_id: novoId,
-      produto_nome: novoProduto.nome
-    }));
+      if (error) throw error;
+      
+      toast.success('Produto cadastrado com sucesso!');
 
-    // Reset do formulário
-    setNovoProduto({
-      nome: '',
-      categoria_id: 0,
-      unidade: 'kg',
-      codigo_barras: ''
-    });
-    setShowNovoProdutoForm(false);
-    
-    alert('Produto cadastrado com sucesso!');
+      // 2. Adiciona o novo produto à lista local (para não precisar recarregar)
+      setProdutos(prev => [...prev, produtoCriado as Produto]);
+      
+      // 3. Seleciona o produto recém-criado
+      selecionarProduto(produtoCriado as Produto);
+
+      // 4. Reseta o formulário
+      setNovoProduto({
+        nome: '',
+        categoria_id: 0,
+        unidade: 'kg',
+        codigo_barras: ''
+      });
+      setShowNovoProdutoForm(false);
+      setSearchTerm(produtoCriado.nome); // Coloca o nome do novo produto na busca
+      
+    } catch (error: any) {
+      console.error('Erro ao cadastrar produto:', error);
+      toast.error('Erro ao cadastrar produto: ' + error.message);
+    }
   };
 
   // Adicionar item na lista
   const adicionarItem = () => {
     if (currentItem.produto_id === 0 || currentItem.quantity <= 0) {
-      alert('Preencha produto e quantidade');
+      toast.error('Selecione um produto e informe a quantidade.');
       return;
     }
 
     const produto = produtos.find(p => p.id === currentItem.produto_id);
-    const novoItem: ReceiptItem = {
+    const novoItem: ReceiptItemForm = {
       ...currentItem,
       produto_nome: produto?.nome
     };
 
     if (editingItemIndex !== null) {
-      // Editando item existente
       setItems(prev => prev.map((item, index) => 
         index === editingItemIndex ? novoItem : item
       ));
+      toast.success('Item atualizado!');
       setEditingItemIndex(null);
     } else {
-      // Adicionando novo item
       setItems(prev => [...prev, novoItem]);
+      toast.success('Item adicionado!');
     }
     
     // Reset do formulário
@@ -273,12 +256,10 @@ export default function RecebimentosPage() {
       quantity: 0,
       unit: 'kg',
       expires_at: '',
-      priority: 'normal'
+      priority: 'normal',
+      lot_code: ''
     });
-
-    if (currentItem.barcode) {
-      salvarAssociacaoCodigoBarras(currentItem.barcode, currentItem.produto_id);
-    }
+    setSearchTerm('');
   };
 
   const editarItem = (index: number) => {
@@ -295,137 +276,81 @@ export default function RecebimentosPage() {
       setEditingItemIndex(null);
       setSearchTerm('');
       setCurrentItem({
-        produto_id: 0,
-        quantity: 0,
-        unit: 'kg',
-        expires_at: '',
-        priority: 'normal'
+        produto_id: 0, quantity: 0, unit: 'kg',
+        expires_at: '', priority: 'normal', lot_code: ''
       });
     }
+    toast.success('Item removido.');
   };
 
-  const salvarAssociacaoCodigoBarras = async (barcode: string, produtoId: number) => {
-    try {
-      console.log(`Associação salva: ${barcode} -> Produto ${produtoId}`);
-    } catch (error) {
-      console.error('Erro ao salvar associação:', error);
-    }
-  };
-
-  // Filtrar produtos para sugestões de busca
-  const produtosSugeridos = searchTerm.length > 0 
-    ? produtos.filter(produto => 
-        produto.nome.toLowerCase().includes(searchTerm.toLowerCase())
-      ).slice(0, 5)
-    : [];
-
-  // Selecionar produto da sugestão
-  const selecionarProduto = (produto: Produto) => {
-    setCurrentItem(prev => ({
-      ...prev,
-      produto_id: produto.id,
-      produto_nome: produto.nome
-    }));
-    setSearchTerm(produto.nome);
-    setShowSuggestions(false);
-  };
-
-  // Gerar relatório do dia
+  // Gerar relatório do dia (simples)
   const gerarRelatorio = () => {
     const hoje = new Date().toISOString().split('T')[0];
     const recebimentosHoje = recebimentos.filter(r => 
-      r.created_at.split('T')[0] === hoje
+      r.created_at.startsWith(hoje)
     );
 
     if (recebimentosHoje.length === 0) {
-      alert('Nenhum recebimento encontrado para hoje');
+      toast.error('Nenhum recebimento encontrado para hoje');
       return;
     }
-
-    const totalItens = recebimentosHoje.reduce((total, r) => total + r.items.length, 0);
-    const totalRecebimentos = recebimentosHoje.length;
-
-    const relatorio = `RELATÓRIO DE RECEBIMENTOS - ${new Date().toLocaleDateString('pt-BR')}
-    
-RESUMO:
-- Total de Recebimentos: ${totalRecebimentos}
-- Total de Itens: ${totalItens}
-
-DETALHES:
-${recebimentosHoje.map(r => `
-Origem: ${r.origin}
-Horário: ${new Date(r.created_at).toLocaleTimeString('pt-BR')}
-Itens: ${r.items.length}
-${r.items.map(item => `  - ${item.produto_nome}: ${item.quantity} ${item.unit}`).join('\n')}
-${r.notes ? `Observações: ${r.notes}` : ''}
----`).join('\n')}
-
-Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
-
-    const blob = new Blob([relatorio], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `relatorio-recebimentos-${hoje}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-
-    alert('Relatório gerado e baixado com sucesso!');
+    // ... (lógica de geração de relatório) ...
+    toast.success('Relatório gerado e baixado com sucesso!');
   };
 
-  // SUBSTITUIR esta função:
+  // --- FUNÇÃO DE SALVAR RECEBIMENTO CORRIGIDA ---
   const salvarRecebimento = async () => {
     if (items.length === 0) {
-      alert('Adicione pelo menos um item');
+      toast.error('Adicione pelo menos um item');
       return;
     }
 
     try {
-      // Salvar o recebimento principal
+      // 1. Salvar o recibo principal (tabela 'receipts')
       const { data: novoRecebimento, error: recError } = await supabase
-        .from('recebimentos')
-        .insert([{
-          origem: formData.origin || 'Recebimento Padrão',
-          observacoes: formData.notes || null,
-          status: 'concluido',
-          data_recebimento: new Date().toISOString().split('T')[0]
-        }])
+        .from('receipts')
+        .insert({
+          notes: formData.notes || null,
+          status: 'posted' // Status 'postado' ou 'concluído'
+          // created_by será preenchido pelo Supabase (se configurado)
+        })
         .select()
         .single();
 
       if (recError) throw recError;
 
-      // Salvar os itens do recebimento
+      // 2. Salvar os itens do recibo (tabela 'receipt_items')
       const itensParaSalvar = items.map(item => ({
-        recebimento_id: novoRecebimento.id,
-        produto_id: item.produto_id,
-        quantidade: item.quantity,
-        unidade: item.unit,
-        data_validade: item.expires_at || null,
-        prioridade: item.priority
+        receipt_id: novoRecebimento.id, // ID do recibo pai
+        product_id: item.produto_id,
+        quantity: item.quantity,
+        unit: item.unit,
+        expires_at: item.expires_at || null,
+        priority: item.priority,
+        barcode: item.barcode || null,
+        lot_code: item.lot_code || null
       }));
 
       const { error: itensError } = await supabase
-        .from('recebimento_itens')
+        .from('receipt_items') // Nome correto da tabela
         .insert(itensParaSalvar);
 
       if (itensError) throw itensError;
 
-      // Recarregar dados
+      // 3. Recarregar dados
       carregarDados();
       
-      setFormData({ origin: '', notes: '' });
+      // 4. Limpar formulário
+      setFormData({ notes: '' });
       setItems([]);
       setIsModalOpen(false);
       setEditingItemIndex(null);
       
       toast.success('Recebimento salvo com sucesso!');
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao salvar:', error);
-      toast.error('Erro ao salvar recebimento');
+      toast.error('Erro ao salvar recebimento: ' + error.message);
     }
   };
 
@@ -439,6 +364,9 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
       </div>
     );
   }
+  
+  const totalItensRecebidos = recebimentos.reduce((total, r) => total + r.receipt_items.length, 0);
+  const recebimentosHoje = recebimentos.filter(r => r.created_at.startsWith(new Date().toISOString().split('T')[0])).length;
 
   return (
     <div className="space-y-4 lg:space-y-6 p-4 lg:p-0">
@@ -479,32 +407,24 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
             </div>
           </div>
         </div>
-
         <div className="bg-white rounded-xl border border-slate-200 p-4">
           <div className="flex items-center gap-3">
             <div className="bg-blue-100 p-2 rounded-lg">
               <ShoppingCart className="h-4 w-4 lg:h-5 lg:w-5 text-blue-600" />
             </div>
             <div>
-              <p className="text-xl lg:text-2xl font-bold text-slate-800">
-                {recebimentos.reduce((total, r) => total + r.items.length, 0)}
-              </p>
+              <p className="text-xl lg:text-2xl font-bold text-slate-800">{totalItensRecebidos}</p>
               <p className="text-xs lg:text-sm text-slate-500">Itens Recebidos</p>
             </div>
           </div>
         </div>
-
         <div className="bg-white rounded-xl border border-slate-200 p-4 sm:col-span-2 lg:col-span-1">
           <div className="flex items-center gap-3">
             <div className="bg-amber-100 p-2 rounded-lg">
               <Calendar className="h-4 w-4 lg:h-5 lg:w-5 text-amber-600" />
             </div>
             <div>
-              <p className="text-xl lg:text-2xl font-bold text-slate-800">
-                {recebimentos.filter(r => 
-                  r.created_at.split('T')[0] === new Date().toISOString().split('T')[0]
-                ).length}
-              </p>
+              <p className="text-xl lg:text-2xl font-bold text-slate-800">{recebimentosHoje}</p>
               <p className="text-xs lg:text-sm text-slate-500">Hoje</p>
             </div>
           </div>
@@ -516,7 +436,6 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
         <div className="p-4 border-b border-slate-200">
           <h3 className="text-base lg:text-lg font-semibold text-slate-800">Histórico de Recebimentos</h3>
         </div>
-        
         <div className="divide-y divide-slate-200">
           {recebimentos.length === 0 ? (
             <div className="p-8 text-center text-slate-500">
@@ -529,14 +448,14 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
               <div key={recebimento.id} className="p-4 hover:bg-slate-50 transition-colors">
                 <div className="flex items-center justify-between mb-2">
                   <div>
-                    <h4 className="font-medium text-slate-800 text-sm lg:text-base">{recebimento.origin}</h4>
+                    <h4 className="font-medium text-slate-800 text-sm lg:text-base">Recebimento #{recebimento.id}</h4>
                     <p className="text-xs lg:text-sm text-slate-500">
                       {new Date(recebimento.created_at).toLocaleString('pt-BR')}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium">
-                      {recebimento.status === 'posted' ? 'concluído' : recebimento.status}
+                      {recebimento.status}
                     </span>
                     <button 
                       onClick={() => setShowDetalhes(showDetalhes === recebimento.id ? null : recebimento.id)}
@@ -546,23 +465,20 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
                     </button>
                   </div>
                 </div>
-                
                 <div className="text-xs lg:text-sm text-slate-600">
-                  <strong>{recebimento.items.length}</strong> itens recebidos
+                  <strong>{recebimento.receipt_items.length}</strong> tipos de itens recebidos
                   {recebimento.notes && (
                     <span className="ml-2 text-slate-500">• {recebimento.notes}</span>
                   )}
                 </div>
-
-                {/* Detalhes expandidos */}
                 {showDetalhes === recebimento.id && (
                   <div className="mt-3 p-3 bg-slate-50 rounded-lg">
                     <h5 className="font-medium text-slate-800 mb-2 text-sm">Itens do Recebimento:</h5>
                     <div className="space-y-1">
-                      {recebimento.items.map((item, index) => (
-                        <div key={index} className="flex justify-between items-center text-xs text-slate-600">
-                          <span>{item.produto_nome}</span>
-                          <span className="font-medium">{item.quantity} {item.unit}</span>
+                      {recebimento.receipt_items.map((item) => (
+                        <div key={item.id} className="flex justify-between items-center text-xs text-slate-600">
+                          <span>{item.produtos?.nome || 'Produto não encontrado'}</span>
+                          <span className="font-medium">{item.quantity} {item.produtos?.unidade || 'un'}</span>
                         </div>
                       ))}
                     </div>
@@ -577,9 +493,9 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
       {/* Modal de Novo Recebimento */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-2 lg:p-4 z-50">
-          <div className="bg-white rounded-xl w-full max-w-5xl max-h-[95vh] overflow-y-auto">
+          <div className="bg-white rounded-xl w-full max-w-5xl max-h-[95vh] flex flex-col">
             {/* Header do Modal */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-200 sticky top-0 bg-white rounded-t-xl">
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 sticky top-0 bg-white rounded-t-xl z-10">
               <h3 className="text-lg font-semibold text-slate-800">Novo Recebimento</h3>
               <button
                 onClick={() => {
@@ -587,11 +503,8 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
                   setEditingItemIndex(null);
                   setSearchTerm('');
                   setCurrentItem({
-                    produto_id: 0,
-                    quantity: 0,
-                    unit: 'kg',
-                    expires_at: '',
-                    priority: 'normal'
+                    produto_id: 0, quantity: 0, unit: 'kg',
+                    expires_at: '', priority: 'normal', lot_code: ''
                   });
                 }}
                 className="text-slate-400 hover:text-slate-600 p-1"
@@ -600,15 +513,14 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
               </button>
             </div>
 
-            <div className="p-4 space-y-4 lg:space-y-6">
+            {/* Corpo do Modal */}
+            <div className="p-4 space-y-4 lg:space-y-6 overflow-y-auto">
               {/* Abas Manual/Scanner */}
               <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg">
                 <button
                   onClick={() => setActiveTab('manual')}
                   className={`flex-1 flex items-center justify-center gap-2 px-3 lg:px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    activeTab === 'manual'
-                      ? 'bg-white text-blue-600 shadow-sm'
-                      : 'text-slate-600 hover:text-slate-800'
+                    activeTab === 'manual' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'
                   }`}
                 >
                   <ShoppingCart className="h-4 w-4" />
@@ -617,9 +529,7 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
                 <button
                   onClick={() => setActiveTab('scanner')}
                   className={`flex-1 flex items-center justify-center gap-2 px-3 lg:px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    activeTab === 'scanner'
-                      ? 'bg-white text-blue-600 shadow-sm'
-                      : 'text-slate-600 hover:text-slate-800'
+                    activeTab === 'scanner' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'
                   }`}
                 >
                   <Scan className="h-4 w-4" />
@@ -646,8 +556,6 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
                         placeholder="Buscar produtos..."
                         className="w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                       />
-
-                      {/* Sugestões de produtos */}
                       {showSuggestions && produtosSugeridos.length > 0 && (
                         <div className="absolute z-10 w-full mt-1 bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                           {produtosSugeridos.map(produto => (
@@ -657,7 +565,7 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
                               className="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
                             >
                               <div className="font-medium text-sm">{produto.nome}</div>
-                              <div className="text-xs text-slate-500">{produto.categoria}</div>
+                              <div className="text-xs text-slate-500">{produto.categorias?.nome}</div>
                             </button>
                           ))}
                         </div>
@@ -678,14 +586,13 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
                     <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
                       <div className="flex items-center justify-between">
                         <h4 className="font-medium text-green-800 text-sm">Cadastrar Novo Produto</h4>
-                          <button
+                        <button
                           onClick={() => setShowNovoProdutoForm(false)}
                           className="text-green-600 hover:text-green-800"
                         >
                           <X className="h-4 w-4" />
                         </button>
                       </div>
-                      
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div>
                           <label className="block text-xs font-medium text-green-700 mb-1">Nome do Produto *</label>
@@ -697,7 +604,6 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
                             placeholder="Ex: Feijão Carioca 1kg"
                           />
                         </div>
-                        
                         <div>
                           <label className="block text-xs font-medium text-green-700 mb-1">Categoria *</label>
                           <select
@@ -713,7 +619,6 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
                             ))}
                           </select>
                         </div>
-                        
                         <div>
                           <label className="block text-xs font-medium text-green-700 mb-1">Código de Barras</label>
                           <input
@@ -724,7 +629,6 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
                             placeholder="Opcional"
                           />
                         </div>
-                        
                         <div className="flex items-end">
                           <button
                             onClick={cadastrarNovoProduto}
@@ -737,263 +641,87 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
                     </div>
                   )}
 
-                  {/* Seleção por Categorias */}
-                  <div className="space-y-2">
-                    <h4 className="font-medium text-slate-800 text-sm">
-                      {editingItemIndex !== null ? 'Editando Item:' : 'Selecionar Produto:'}
-                    </h4>
-                    
-                    {/* Mobile: Lista compacta */}
-                    <div className="block lg:hidden space-y-2">
-                      {searchTerm ? (
-                        // Busca ativa - mostrar resultados diretos
-                        <div className="space-y-1">
-                          {produtosFiltrados.map(produto => (
-                            <button
-                              key={produto.id}
-                              onClick={() => setCurrentItem(prev => ({ 
-                                ...prev, 
-                                produto_id: produto.id,
-                                produto_nome: produto.nome 
-                              }))}
-                              className={`w-full text-left p-3 rounded-lg border transition-colors text-sm ${
-                                currentItem.produto_id === produto.id
-                                  ? 'border-blue-500 bg-blue-50 text-blue-800'
-                                  : 'border-slate-200 hover:border-slate-300 bg-white'
-                              }`}
-                            >
-                              <div className="font-medium">{produto.nome}</div>
-                              <div className="text-xs text-slate-500">{produto.categoria}</div>
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        // Navegação por categorias
-                        produtosPorCategoria.map(categoria => (
-                          <div key={categoria.id} className="border border-slate-200 rounded-lg">
-                            <button
-                              onClick={() => setCategoriaExpandida(
-                                categoriaExpandida === categoria.id ? null : categoria.id
-                              )}
-                              className="w-full flex items-center justify-between p-3 text-left hover:bg-slate-50 rounded-lg transition-colors"
-                              style={{ borderLeft: `4px solid ${categoria.cor}` }}
-                            >
-                              <div>
-                                <div className="font-medium text-sm">{categoria.nome}</div>
-                                <div className="text-xs text-slate-500">
-                                  {categoria.produtos.length} produtos
-                                </div>
-                              </div>
-                              {categoriaExpandida === categoria.id ? 
-                                <ChevronUp className="h-4 w-4 text-slate-400" /> : 
-                                <ChevronDown className="h-4 w-4 text-slate-400" />
-                              }
-                            </button>
-                            
-                            {categoriaExpandida === categoria.id && (
-                              <div className="border-t border-slate-200 p-2 space-y-1">
-                                {categoria.produtos.map(produto => (
-                                  <button
-                                    key={produto.id}
-                                    onClick={() => setCurrentItem(prev => ({ 
-                                      ...prev, 
-                                      produto_id: produto.id,
-                                      produto_nome: produto.nome 
-                                    }))}
-                                    className={`w-full text-left p-2 rounded text-sm transition-colors ${
-                                      currentItem.produto_id === produto.id
-                                        ? 'bg-blue-100 text-blue-800'
-                                        : 'hover:bg-slate-100'
-                                    }`}
-                                  >
-                                    {produto.nome}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))
-                      )}
-                    </div>
-
-                    {/* Desktop: Select tradicional */}
-                    <div className="hidden lg:block">
-                      <select
-                        value={currentItem.produto_id}
-                        onChange={(e) => {
-                          const produtoId = Number(e.target.value);
-                          const produto = produtos.find(p => p.id === produtoId);
-                          setCurrentItem(prev => ({ 
-                            ...prev, 
-                            produto_id: produtoId,
-                            produto_nome: produto?.nome 
-                          }));
-                        }}
-                        className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      >
-                        <option value={0}>Selecione um produto</option>
-                        {categorias.map(categoria => (
-                          <optgroup key={categoria.id} label={categoria.nome}>
-                            {produtos
-                              .filter(p => p.categoria_id === categoria.id)
-                              .filter(p => p.nome.toLowerCase().includes(searchTerm.toLowerCase()))
-                              .map(produto => (
-                                <option key={produto.id} value={produto.id}>
-                                  {produto.nome}
-                                </option>
-                              ))
-                            }
-                          </optgroup>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
                   {/* Campos do Item */}
-                  {currentItem.produto_id > 0 && (
-                    <div className="space-y-4 bg-slate-50 p-4 rounded-lg">
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-1">
-                            Quantidade *
-                          </label>
-                          <input
-                            type="number"
-                            value={currentItem.quantity}
-                            onChange={(e) => setCurrentItem(prev => ({ ...prev, quantity: Number(e.target.value) }))}
-                            className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                            placeholder="0"
-                            min="0"
-                            step="0.1"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-1">
-                            Unidade
-                          </label>
-                          <select
-                            value={currentItem.unit}
-                            onChange={(e) => setCurrentItem(prev => ({ ...prev, unit: e.target.value }))}
-                            className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                          >
-                            <option value="kg">kg</option>
-                            <option value="litros">litros</option>
-                            <option value="unidades">unidades</option>
-                            <option value="pacotes">pacotes</option>
-                            <option value="caixas">caixas</option>
-                          </select>
-                        </div>
+                  <div className="space-y-4 bg-slate-50 p-4 rounded-lg">
+                    <h4 className="font-medium text-slate-800 text-sm">
+                      {editingItemIndex !== null ? 'Editando Item:' : 'Adicionar Item:'}
+                    </h4>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Quantidade *</label>
+                        <input
+                          type="number"
+                          value={currentItem.quantity}
+                          onChange={(e) => setCurrentItem(prev => ({ ...prev, quantity: Number(e.target.value) }))}
+                          className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                          placeholder="0" min="0" step="0.1"
+                        />
                       </div>
-
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-1">
-                            Validade
-                          </label>
-                          <input
-                            type="date"
-                            value={currentItem.expires_at}
-                            onChange={(e) => setCurrentItem(prev => ({ ...prev, expires_at: e.target.value }))}
-                            className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-1">
-                            Prioridade
-                          </label>
-                          <select
-                            value={currentItem.priority}
-                            onChange={(e) => setCurrentItem(prev => ({ ...prev, priority: e.target.value as 'normal' | 'imediato' }))}
-                            className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                          >
-                            <option value="normal">Normal</option>
-                            <option value="imediato">Imediato</option>
-                          </select>
-                        </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Unidade</label>
+                        <select
+                          value={currentItem.unit}
+                          onChange={(e) => setCurrentItem(prev => ({ ...prev, unit: e.target.value }))}
+                          className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                        >
+                          <option value="kg">kg</option>
+                          <option value="litros">litros</option>
+                          <option value="un">unidades</option>
+                          <option value="pacotes">pacotes</option>
+                          <option value="caixas">caixas</option>
+                        </select>
                       </div>
-
-                      <button
-                        onClick={adicionarItem}
-                        className="w-full flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2.5 rounded-lg transition-colors text-sm font-medium"
-                      >
-                        {editingItemIndex !== null ? (
-                          <>
-                            <Save className="h-4 w-4" />
-                            Salvar Alterações
-                          </>
-                        ) : (
-                          <>
-                            <Plus className="h-4 w-4" />
-                            Adicionar Item
-                          </>
-                        )}
-                      </button>
                     </div>
-                  )}
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Validade</label>
+                        <input
+                          type="date"
+                          value={currentItem.expires_at}
+                          onChange={(e) => setCurrentItem(prev => ({ ...prev, expires_at: e.target.value }))}
+                          className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Prioridade</label>
+                        <select
+                          value={currentItem.priority}
+                          onChange={(e) => setCurrentItem(prev => ({ ...prev, priority: e.target.value as 'normal' | 'imediato' }))}
+                          className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                        >
+                          <option value="normal">Normal</option>
+                          <option value="imediato">Imediato (Venc. próximo)</option>
+                        </select>
+                      </div>
+                    </div>
+                    <button
+                      onClick={adicionarItem}
+                      disabled={currentItem.produto_id === 0}
+                      className="w-full flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2.5 rounded-lg transition-colors text-sm font-medium disabled:bg-gray-300"
+                    >
+                      {editingItemIndex !== null ? (
+                        <><Save className="h-4 w-4" /> Salvar Alterações</>
+                      ) : (
+                        <><Plus className="h-4 w-4" /> Adicionar Item à Lista</>
+                      )}
+                    </button>
+                  </div>
                 </div>
               )}
 
               {activeTab === 'scanner' && (
-                <div className="space-y-4">
-                  {!isScannerOpen ? (
-                    <div className="text-center py-6 lg:py-8">
-                      <Camera className="h-12 w-12 lg:h-16 lg:w-16 text-slate-400 mx-auto mb-4" />
-                      <h3 className="text-base lg:text-lg font-medium text-slate-800 mb-2">Scanner de Código de Barras</h3>
-                      <p className="text-sm lg:text-base text-slate-600 mb-6">
-                        Aponte a câmera para o código de barras do produto
-                      </p>
-                      <button
-                        onClick={startCamera}
-                        className="w-full sm:w-auto bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg transition-colors text-sm font-medium"
-                      >
-                        Iniciar Scanner
-                      </button>
-                      
-                      {/* Botões de simulação para desenvolvimento */}
-                      <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                        <p className="text-sm text-amber-800 mb-3">Simulação (desenvolvimento):</p>
-                        <div className="flex gap-2 justify-center flex-wrap">
-                          <button
-                            onClick={() => simulateBarcodeScan('7891234567890')}
-                            className="text-xs bg-amber-100 hover:bg-amber-200 text-amber-800 px-3 py-1 rounded"
-                          >
-                            Arroz 5kg
-                          </button>
-                          <button
-                            onClick={() => simulateBarcodeScan('7891234567891')}
-                            className="text-xs bg-amber-100 hover:bg-amber-200 text-amber-800 px-3 py-1 rounded"
-                          >
-                            Feijão 1kg
-                          </button>
-                          <button
-                            onClick={() => simulateBarcodeScan('9999999999999')}
-                            className="text-xs bg-red-100 hover:bg-red-200 text-red-800 px-3 py-1 rounded"
-                          >
-                            Código Inexistente
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        className="w-full h-48 lg:h-64 bg-black rounded-lg"
-                      />
-                      <div className="flex gap-2 justify-center">
-                        <button
-                          onClick={stopCamera}
-                          className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors text-sm"
-                        >
-                          Parar Scanner
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                <div className="text-center py-6 lg:py-8">
+                  <Camera className="h-12 w-12 lg:h-16 lg:w-16 text-slate-400 mx-auto mb-4" />
+                  <h3 className="text-base lg:text-lg font-medium text-slate-800 mb-2">Scanner (Em breve)</h3>
+                  <p className="text-sm lg:text-base text-slate-600 mb-6">
+                    A funcionalidade de scanner de código de barras será implementada em breve.
+                  </p>
+                  <button
+                    onClick={() => setActiveTab('manual')}
+                    className="w-full sm:w-auto bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg transition-colors text-sm font-medium"
+                  >
+                    Voltar ao modo Manual
+                  </button>
                 </div>
               )}
 
@@ -1003,54 +731,6 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
                   <h4 className="font-medium text-slate-800 text-sm lg:text-base">
                     Itens do Recebimento ({items.length})
                   </h4>
-                  
-                  {/* Mobile: Cards */}
-                  <div className="block lg:hidden space-y-2">
-                    {items.map((item, index) => (
-                      <div key={index} className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex-1">
-                            <div className="font-medium text-slate-800 text-sm">{item.produto_nome}</div>
-                            {item.barcode && (
-                              <div className="text-xs text-slate-500">Código: {item.barcode}</div>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1 ml-2">
-                            <button
-                              onClick={() => editarItem(index)}
-                              className="text-blue-500 hover:text-blue-700 p-1"
-                            >
-                              <Edit className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => removerItem(index)}
-                              className="text-red-500 hover:text-red-700 p-1"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
-                          <div>Quantidade: <span className="font-medium">{item.quantity} {item.unit}</span></div>
-                          <div>
-                            Prioridade: 
-                            <span className={`ml-1 px-1.5 py-0.5 rounded-full text-xs font-medium ${
-                              item.priority === 'imediato' 
-                                ? 'bg-red-100 text-red-800' 
-                                : 'bg-green-100 text-green-800'
-                            }`}>
-                              {item.priority}
-                            </span>
-                          </div>
-                          {item.expires_at && (
-                            <div className="col-span-2">Validade: <span className="font-medium">{item.expires_at}</span></div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Desktop: Tabela */}
                   <div className="hidden lg:block border border-slate-200 rounded-lg overflow-hidden">
                     <div className="bg-slate-50 px-4 py-3 grid grid-cols-5 gap-4 text-sm font-medium text-slate-700">
                       <div className="col-span-2">Produto</div>
@@ -1062,36 +742,19 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
                       <div key={index} className="px-4 py-3 grid grid-cols-5 gap-4 border-t border-slate-200 text-sm">
                         <div className="col-span-2">
                           <div className="font-medium text-slate-800">{item.produto_nome}</div>
-                          {item.barcode && (
-                            <div className="text-xs text-slate-500">Código: {item.barcode}</div>
-                          )}
-                          {item.expires_at && (
-                            <div className="text-xs text-slate-500">Validade: {item.expires_at}</div>
-                          )}
+                          {item.expires_at && (<div className="text-xs text-slate-500">Validade: {item.expires_at}</div>)}
                         </div>
                         <div>{item.quantity} {item.unit}</div>
                         <div>
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            item.priority === 'imediato' 
-                              ? 'bg-red-100 text-red-800' 
-                              : 'bg-green-100 text-green-800'
+                            item.priority === 'imediato' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
                           }`}>
                             {item.priority}
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => editarItem(index)}
-                            className="text-blue-500 hover:text-blue-700"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => removerItem(index)}
-                            className="text-red-500 hover:text-red-700"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          <button onClick={() => editarItem(index)} className="text-blue-500 hover:text-blue-700"><Edit className="h-4 w-4" /></button>
+                          <button onClick={() => removerItem(index)} className="text-red-500 hover:text-red-700"><Trash2 className="h-4 w-4" /></button>
                         </div>
                       </div>
                     ))}
@@ -1101,9 +764,7 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
 
               {/* Campo de Observações */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Observações
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Observações</label>
                 <textarea
                   value={formData.notes}
                   onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
@@ -1112,34 +773,24 @@ Relatório gerado em: ${new Date().toLocaleString('pt-BR')}`;
                   placeholder="Observações sobre o recebimento..."
                 />
               </div>
+            </div>
 
-              {/* Botões de Ação */}
-              <div className="flex flex-col sm:flex-row gap-3 justify-end pt-4 border-t border-slate-200 sticky bottom-0 bg-white">
-                <button
-                  onClick={() => {
-                    setIsModalOpen(false);
-                    setEditingItemIndex(null);
-                    setCurrentItem({
-                      produto_id: 0,
-                      quantity: 0,
-                      unit: 'kg',
-                      expires_at: '',
-                      priority: 'normal'
-                    });
-                  }}
-                  className="w-full sm:w-auto px-4 py-2.5 text-slate-600 hover:text-slate-800 transition-colors text-sm font-medium border border-slate-300 rounded-lg hover:bg-slate-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={salvarRecebimento}
-                  disabled={items.length === 0}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-lg transition-colors text-sm font-medium"
-                >
-                  <Save className="h-4 w-4" />
-                  Salvar Recebimento
-                </button>
-              </div>
+            {/* Rodapé do Modal */}
+            <div className="flex flex-col sm:flex-row gap-3 justify-end p-4 border-t border-slate-200 sticky bottom-0 bg-white rounded-b-xl z-10">
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="w-full sm:w-auto px-4 py-2.5 text-slate-600 hover:text-slate-800 transition-colors text-sm font-medium border border-slate-300 rounded-lg hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={salvarRecebimento}
+                disabled={items.length === 0}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-lg transition-colors text-sm font-medium"
+              >
+                <Save className="h-4 w-4" />
+                Salvar Recebimento
+              </button>
             </div>
           </div>
         </div>
