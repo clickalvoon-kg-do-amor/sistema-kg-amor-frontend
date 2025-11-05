@@ -35,7 +35,8 @@ export default function App() {
   }
 
   return (
-    <Router basename={import.meta.env.MODE === "production" ? "/sistema-kg-amor-frontend" : "/"}>
+    // A LINHA 'basename' FOI REMOVIDA DAQUI
+    <Router>
       <Routes>
         <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
         <Route
