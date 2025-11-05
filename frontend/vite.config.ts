@@ -2,9 +2,9 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  base: '/', // <--- ADICIONE ESTA LINHA
+  base: '/', // Esta é a única linha 'base' que você precisa
   plugins: [react()],
-  base: process.env.NODE_ENV === 'production' ? '/sistema-kg-amor-frontend/' : '/',
+  // A linha de base duplicada e errada foi removida daqui
   build: {
     outDir: 'dist',
   },
