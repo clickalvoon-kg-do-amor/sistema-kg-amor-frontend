@@ -1,0 +1,421 @@
+// frontend/src/pages/PainelGerenciador.tsx
+import { useEffect, useMemo, useState } from 'react';
+import { supabase } from '../lib/supabaseClient';
+import { Users, TrendingUp, TrendingDown, Download } from 'lucide-react';
+import toast from 'react-hot-toast'; 
+import * as XLSX from 'xlsx'; 
+
+// Interfaces (baseadas no seu banco)
+interface Celula {
+  id: number;
+  nome: string;
+  lider: string;
+  supervisores: string;
+  quantidade_kg: number;
+  quantidade_itens: number;
+  redes: { 
+    id: number;
+    cor: string;
+    hex: string;
+  } | null;
+}
+
+interface Historico {
+  celula_id: number;
+  data_chegada: string;
+}
+
+// Componente RankingBox 
+const formatPt = (n: number) =>
+  new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(n);
+
+function RankingBox({ title, data }: { title: string, data: [string, number][] }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <h3 className="mb-2 text-lg font-semibold text-slate-800">{title}</h3>
+      <ol className="text-sm text-slate-600 space-y-1">
+        {data.map(([nome, total], i) => (
+          <li key={nome + i} className="flex justify-between items-center">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <span className="font-bold text-slate-800 flex-shrink-0">{i + 1}.</span>
+              <span className="truncate">{nome}</span>
+            </div>
+            <span className="font-semibold text-right ml-2 flex-shrink-0">{formatPt(total)} kg</span>
+          </li>
+        ))}
+        {data.length === 0 && (
+          <div className="text-sm text-slate-400">
+            Nenhum dado encontrado.
+          </div>
+        )}
+      </ol>
+    </div>
+  );
+}
+
+// Componente PieChart
+function PieChart({ data }: { data: { name: string, value: number, color: string }[] }) {
+  const total = data.reduce((sum, item) => sum + item.value, 0);
+  if (total === 0) {
+    return (
+      <div className="flex items-center justify-center h-40">
+        <svg width="140" height="140" viewBox="0 0 140 140">
+          <circle cx="70" cy="70" r="55" fill="#e2e8f0" />
+        </svg>
+      </div>
+    );
+  }
+
+  let currentAngle = 0;
+  return (
+    <svg width="140" height="140" viewBox="0 0 140 140" className="transform -rotate-90">
+      {data.map((item) => {
+        if (item.value === 0) return null;
+        const angle = (item.value / total) * 360;
+        const startAngle = currentAngle;
+        const endAngle = currentAngle + angle;
+        const startAngleRad = (startAngle * Math.PI) / 180;
+        const endAngleRad = (endAngle * Math.PI) / 180;
+        const largeArcFlag = angle > 180 ? 1 : 0;
+        const x1 = 70 + 55 * Math.cos(startAngleRad);
+        const y1 = 70 + 55 * Math.sin(startAngleRad);
+        const x2 = 70 + 55 * Math.cos(endAngleRad);
+        const y2 = 70 + 55 * Math.sin(endAngleRad);
+        const pathData = [`M 70 70`, `L ${x1} ${y1}`, `A 55 55 0 ${largeArcFlag} 1 ${x2} ${y2}`, 'Z'].join(' ');
+        currentAngle += angle;
+        return <path key={item.name} d={pathData} fill={item.color} stroke="white" strokeWidth="2" />;
+      })}
+    </svg>
+  );
+}
+
+// Componente Gráfico de Barras de Atividade por Rede
+interface RedeStats {
+  nome: string;
+  ativas: number;
+  inativas: number;
+  total: number;
+  cor: string;
+}
+function AtividadeRedesChart({ data }: { data: RedeStats[] }) {
+  
+  return (
+    <div className="space-y-4">
+      {data.sort((a,b) => b.total - a.total).map(rede => {
+        const percAtivas = rede.total > 0 ? (rede.ativas / rede.total) * 100 : 0;
+        const percInativas = rede.total > 0 ? (rede.inativas / rede.total) * 100 : 0;
+        
+        const isWhiteNetwork = rede.nome.toUpperCase() === 'BRANCA' || rede.nome.toUpperCase() === 'BRANCO';
+        const textColor = isWhiteNetwork ? '#333' : rede.cor; 
+        
+        return (
+          <div key={rede.nome}>
+            <div className="flex justify-between items-center mb-1 text-sm">
+              <span 
+                className="font-medium"
+                style={{ color: textColor }} 
+              >
+                {rede.nome}
+              </span>
+              {/* --- TEXTO ATUALIZADO --- */}
+              <span className="text-slate-500">{rede.ativas} Entregues / {rede.inativas} Não Entregues ({rede.total} Total)</span>
+            </div>
+            <div className="flex h-6 w-full bg-slate-200 rounded overflow-hidden">
+              <div 
+                className="bg-green-500"
+                style={{ width: `${percAtivas}%` }}
+                title={`Entregues: ${rede.ativas}`} // <-- TEXTO ATUALIZADO
+              ></div>
+              <div 
+                className="bg-red-500"
+                style={{ width: `${percInativas}%` }}
+                title={`Não Entregues: ${rede.inativas}`} // <-- TEXTO ATUALIZADO
+              ></div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
+export default function PainelGerenciador() {
+  const [loading, setLoading] = useState(true);
+  const [celulas, setCelulas] = useState<Celula[]>([]);
+  const [historico, setHistorico] = useState<Historico[]>([]);
+
+  // Filtros de data
+  const [dataIni, setDataIni] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
+  const [dataFim, setDataFim] = useState(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0]);
+
+
+  // Carrega todos os dados
+  useEffect(() => {
+    async function carregarDadosMacro() {
+      try {
+        setLoading(true);
+        const { data: celulasData, error: celulasError } = await supabase
+          .from('celulas')
+          .select('id, nome, lider, supervisores, quantidade_kg, quantidade_itens, redes(id, cor, hex)') 
+          .eq('ativo', true);
+        if (celulasError) throw celulasError;
+        setCelulas(celulasData as Celula[] || []);
+
+        const { data: historicoData, error: historicoError } = await supabase
+          .from('historico_kg')
+          .select('celula_id, data_chegada');
+        if (historicoError) throw historicoError;
+        setHistorico(historicoData || []);
+
+      } catch (error: any) {
+        console.error('Erro ao carregar dados do painel:', error);
+        toast.error("Erro ao carregar dados: " + error.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    carregarDadosMacro();
+  }, []);
+
+  // Lógica de atividade
+  const celulasAtivasIds = useMemo(() => {
+    if (!dataIni || !dataFim) return new Set<number>();
+
+    const inicioDoPeriodo = new Date(dataIni);
+    inicioDoPeriodo.setUTCHours(0, 0, 0, 0);
+    const fimDoPeriodo = new Date(dataFim);
+    fimDoPeriodo.setUTCHours(23, 59, 59, 999);
+
+    const ids = new Set<number>();
+    historico.forEach(h => {
+      const dataEntrega = new Date(h.data_chegada);
+      if (dataEntrega >= inicioDoPeriodo && dataEntrega <= fimDoPeriodo) {
+        ids.add(h.celula_id);
+      }
+    });
+    return ids;
+  }, [historico, dataIni, dataFim]); 
+
+  // Calcula Stats e Rankings
+  const { stats, rankings, pieData, redeStats } = useMemo(() => {
+    const totalCelulas = celulas.length;
+    const celulasAtivas = celulasAtivasIds.size;
+    const celulasInativas = totalCelulas - celulasAtivas;
+    
+    // Rankings Gerais (pelo Saldo Total)
+    const mapSupervisao = new Map<string, number>();
+    const mapLideres = new Map<string, number>();
+    
+    // Stats por Rede
+    const mapRedes = new Map<string, { nome: string, ativas: number, inativas: number, total: number, cor: string }>();
+
+    celulas.forEach(c => {
+      const kg = c.quantidade_kg || 0;
+      
+      const sup = c.supervisores || 'N/D';
+      mapSupervisao.set(sup, (mapSupervisao.get(sup) || 0) + kg);
+
+      const lid = c.lider || 'N/D';
+      mapLideres.set(lid, (mapLideres.get(lid) || 0) + kg);
+
+      // Lógica do gráfico de redes
+      const redeNome = c.redes?.cor || 'Sem Rede';
+      const redeCor = c.redes?.hex || '#6B7280';
+      
+      if (!mapRedes.has(redeNome)) {
+        mapRedes.set(redeNome, { nome: redeNome, ativas: 0, inativas: 0, total: 0, cor: redeCor });
+      }
+      
+      const statsRede = mapRedes.get(redeNome)!;
+      statsRede.total++;
+      
+      if (celulasAtivasIds.has(c.id)) { 
+        statsRede.ativas++;
+      } else {
+        statsRede.inativas++;
+      }
+    });
+
+    const rankingSupervisao = Array.from(mapSupervisao.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10);
+      
+    const rankingLideres = Array.from(mapLideres.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10);
+      
+    const redeStatsArray = Array.from(mapRedes.values());
+
+    return {
+      stats: {
+        totalCelulas,
+        celulasAtivas,
+        celulasInativas
+      },
+      rankings: {
+        rankingSupervisao,
+        rankingLideres
+      },
+      pieData: [
+        // --- TEXTO ATUALIZADO ---
+        { name: 'Entregues', value: celulasAtivas, color: '#4CAF50' },
+        { name: 'Não Entregues', value: celulasInativas, color: '#F44336' },
+      ],
+      redeStats: redeStatsArray
+    };
+  }, [celulas, celulasAtivasIds]);
+
+  // --- FUNÇÃO DE EXPORTAR ATUALIZADA ---
+  const handleExportExcel = () => {
+    try {
+      const dadosParaExportar = celulas.map(c => {
+        // A lógica de "Status" agora usa a lista filtrada por data
+        const status = celulasAtivasIds.has(c.id) ? 'Entregue' : 'Não Entregue'; // <-- TEXTO ATUALIZADO
+        return {
+          'Célula': c.nome,
+          'Líderes': c.lider,
+          'Supervisores': c.supervisores,
+          'Rede': c.redes?.cor || 'N/D',
+          'Status no Período': status, // <-- Título da coluna atualizado
+          'Total KG': c.quantidade_kg,
+          'Total Itens': c.quantidade_itens
+        };
+      });
+
+      const ws = XLSX.utils.json_to_sheet(dadosParaExportar);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Base Geral Células");
+
+      const dataHoje = new Date().toISOString().split('T')[0];
+      const nomeArquivo = `Relatorio_Geral_Celulas_${dataHoje}.xlsx`;
+      XLSX.writeFile(wb, nomeArquivo);
+      toast.success('Relatório exportado!');
+
+    } catch (error: any) {
+      console.error("Erro ao exportar Excel:", error);
+      toast.error("Falha ao exportar Excel: " + error.message);
+    }
+  };
+
+
+  if (loading) {
+    return (
+      <div className="min-h-screen grid place-items-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-slate-600">Calculando análises...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="space-y-6 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <h2 className="mr-4 flex items-center gap-2 text-2xl font-bold text-slate-800">
+          <span>📈</span> Painel Gerenciador
+        </h2>
+        
+        {/* Filtros de Data */}
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="date"
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+            value={dataIni}
+            onChange={(e) => setDataIni(e.target.value)}
+          />
+          <input
+            type="date"
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+            value={dataFim}
+            onChange={(e) => setDataFim(e.target.value)}
+          />
+          <button
+            onClick={handleExportExcel}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+            title="Exportar base de células para Excel"
+          >
+            <Download size={16} />
+            Exportar Base
+          </button>
+        </div>
+      </div>
+      
+      {/* Cards de Resumo */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        {/* Card Total de Células */}
+        <div className={`rounded-xl bg-gradient-to-br from-indigo-500 to-blue-500 p-[1px] shadow`}>
+          <div className="rounded-xl bg-white p-4 flex items-center justify-between">
+            <div>
+              <div className="text-3xl font-bold text-slate-800">{stats.totalCelulas}</div>
+              <div className="text-sm text-slate-500">Total de Células</div>
+            </div>
+            <Users className="text-blue-500" size={24} />
+          </div>
+        </div>
+        {/* Card Células Entregues */}
+        <div className={`rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 p-[1px] shadow`}>
+          <div className="rounded-xl bg-white p-4 flex items-center justify-between">
+            <div>
+              <div className="text-3xl font-bold text-slate-800">{stats.celulasAtivas}</div>
+              {/* --- TEXTO ATUALIZADO --- */}
+              <div className="text-sm text-slate-500">Células Entregues</div>
+            </div>
+            <TrendingUp className="text-green-500" size={24} />
+          </div>
+        </div>
+        {/* Card Células Não Entregues */}
+        <div className={`rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 p-[1px] shadow`}>
+          <div className="rounded-xl bg-white p-4 flex items-center justify-between">
+            <div>
+              <div className="text-3xl font-bold text-slate-800">{stats.celulasInativas}</div>
+              {/* --- TEXTO ATUALIZADO --- */}
+              <div className="text-sm text-slate-500">Células Não Entregues</div>
+            </div>
+            <TrendingDown className="text-pink-500" size={24} />
+          </div>
+        </div>
+      </div>
+
+      {/* Rankings Gerais */}
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
+        <RankingBox title="Top 10 Supervisão (Total KG)" data={rankings.rankingSupervisao} />
+        <RankingBox title="Top 10 Líderes (Total KG)" data={rankings.rankingLideres} />
+      </div>
+
+      {/* Gráficos de Atividade */}
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
+        {/* Gráfico de Pizza Geral */}
+        <div className="lg:col-span-1 rounded-xl border border-slate-200 bg-white p-4">
+          {/* --- TEXTO ATUALIZADO --- */}
+          <h3 className="mb-2 text-lg font-semibold text-slate-800">Status de Entrega no Período</h3>
+          <div className="flex flex-col items-center gap-4">
+            <div className="flex-shrink-0">
+              <PieChart data={pieData} />
+            </div>
+            <div className="w-full space-y-2">
+              {pieData.map((item) => (
+                <div key={item.name} className="flex items-center gap-3 text-sm">
+                  <div className="w-4 h-4 rounded-full border border-gray-300" style={{ backgroundColor: item.color }}></div>
+                  <span className="flex-1 font-medium">{item.name}</span>
+                  <span className="font-semibold">{item.value}</span>
+                  <span className="text-slate-500 w-12 text-right">
+                    ({(stats.totalCelulas > 0 ? (item.value / stats.totalCelulas) * 100 : 0).toFixed(1)}%)
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Gráfico Atividade por Rede */}
+        <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-4">
+          {/* --- TEXTO ATUALIZADO --- */}
+          <h3 className="mb-4 text-lg font-semibold text-slate-800">Status por Rede no Período</h3>
+          <AtividadeRedesChart data={redeStats} />
+        </div>
+      </div>
+    </div>
+  );
+}

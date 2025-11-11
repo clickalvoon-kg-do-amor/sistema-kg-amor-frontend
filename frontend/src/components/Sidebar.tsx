@@ -27,6 +27,16 @@ export default function Sidebar() {
         >
           <span>📥</span> Recebimentos
         </NavLink>
+
+        {/* --- LINK ADICIONADO --- */}
+        <hr className="my-3 border-slate-200" />
+        <NavLink
+          to="/painel-gerenciador"
+          className={({ isActive }) => `${itemClass} ${isActive ? activeClass : ""}`}
+        >
+          <span>📈</span> Painel Gerenciador
+        </NavLink>
+        
       </nav>
     </aside>
   );

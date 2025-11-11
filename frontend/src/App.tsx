@@ -7,6 +7,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Celulas from "./pages/Celulas";
 import Recebimentos from "./pages/Recebimentos";
+import PainelGerenciador from "./pages/PainelGerenciador"; // <-- ADICIONADO
 
 export default function App() {
   const [session, setSession] = useState<null | { user: any }>(null);
@@ -35,7 +36,6 @@ export default function App() {
   }
 
   return (
-    // A LINHA 'basename' FOI REMOVIDA DAQUI
     <Router>
       <Routes>
         <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
@@ -52,6 +52,7 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="celulas" element={<Celulas />} />
           <Route path="recebimentos" element={<Recebimentos />} />
+          <Route path="painel-gerenciador" element={<PainelGerenciador />} /> {/* <-- ADICIONADO */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
