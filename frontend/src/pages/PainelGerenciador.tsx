@@ -5,7 +5,7 @@ import { Users, TrendingUp, TrendingDown, Download } from 'lucide-react';
 import toast from 'react-hot-toast'; 
 import * as XLSX from 'xlsx'; 
 
-// Interfaces (baseadas no seu banco)
+// --- Interfaces Atualizadas ---
 interface Celula {
   id: number;
   nome: string;
@@ -25,9 +25,24 @@ interface Historico {
   data_chegada: string;
 }
 
-// Componente RankingBox 
-const formatPt = (n: number) =>
-  new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(n);
+// Interface para dados de estoque
+interface ItemEstoque {
+  quantity: number;
+  unit: string;
+  produtos: {
+    nome: string;
+  } | null;
+}
+// --- Fim das Interfaces ---
+
+// --- Componente RankingBox ATUALIZADO ---
+// Formata número (inteiro ou com 1 decimal)
+const formatNum = (n: number) => {
+  if (n % 1 === 0) {
+    return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+  }
+  return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(n);
+}
 
 function RankingBox({ title, data }: { title: string, data: [string, number][] }) {
   return (
@@ -40,7 +55,8 @@ function RankingBox({ title, data }: { title: string, data: [string, number][] }
               <span className="font-bold text-slate-800 flex-shrink-0">{i + 1}.</span>
               <span className="truncate">{nome}</span>
             </div>
-            <span className="font-semibold text-right ml-2 flex-shrink-0">{formatPt(total)} kg</span>
+            {/* Remove o "kg" fixo, pois a unidade já está no nome */}
+            <span className="font-semibold text-right ml-2 flex-shrink-0">{formatNum(total)}</span>
           </li>
         ))}
         {data.length === 0 && (
@@ -52,6 +68,7 @@ function RankingBox({ title, data }: { title: string, data: [string, number][] }
     </div>
   );
 }
+// --- Fim do Componente RankingBox ---
 
 // Componente PieChart
 function PieChart({ data }: { data: { name: string, value: number, color: string }[] }) {
@@ -117,19 +134,18 @@ function AtividadeRedesChart({ data }: { data: RedeStats[] }) {
               >
                 {rede.nome}
               </span>
-              {/* --- TEXTO ATUALIZADO --- */}
               <span className="text-slate-500">{rede.ativas} Entregues / {rede.inativas} Não Entregues ({rede.total} Total)</span>
             </div>
             <div className="flex h-6 w-full bg-slate-200 rounded overflow-hidden">
               <div 
                 className="bg-green-500"
                 style={{ width: `${percAtivas}%` }}
-                title={`Entregues: ${rede.ativas}`} // <-- TEXTO ATUALIZADO
+                title={`Entregues: ${rede.ativas}`}
               ></div>
               <div 
                 className="bg-red-500"
                 style={{ width: `${percInativas}%` }}
-                title={`Não Entregues: ${rede.inativas}`} // <-- TEXTO ATUALIZADO
+                title={`Não Entregues: ${rede.inativas}`}
               ></div>
             </div>
           </div>
@@ -144,6 +160,8 @@ export default function PainelGerenciador() {
   const [loading, setLoading] = useState(true);
   const [celulas, setCelulas] = useState<Celula[]>([]);
   const [historico, setHistorico] = useState<Historico[]>([]);
+  const [itensEntrada, setItensEntrada] = useState<ItemEstoque[]>([]); // <-- NOVO
+  const [itensSaida, setItensSaida] = useState<ItemEstoque[]>([]); // <-- NOVO
 
   // Filtros de data
   const [dataIni, setDataIni] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
@@ -155,6 +173,7 @@ export default function PainelGerenciador() {
     async function carregarDadosMacro() {
       try {
         setLoading(true);
+        // Pega todas as células ativas (para a base geral)
         const { data: celulasData, error: celulasError } = await supabase
           .from('celulas')
           .select('id, nome, lider, supervisores, quantidade_kg, quantidade_itens, redes(id, cor, hex)') 
@@ -162,11 +181,28 @@ export default function PainelGerenciador() {
         if (celulasError) throw celulasError;
         setCelulas(celulasData as Celula[] || []);
 
+        // Pega todo o histórico (para ver quem entregou)
         const { data: historicoData, error: historicoError } = await supabase
           .from('historico_kg')
           .select('celula_id, data_chegada');
         if (historicoError) throw historicoError;
         setHistorico(historicoData || []);
+
+        // --- NOVOS FETCHES ---
+        // Pega todos os itens de entrada
+        const { data: entradaData, error: entradaError } = await supabase
+          .from('receipt_items')
+          .select('quantity, unit, produtos(nome)');
+        if (entradaError) throw entradaError;
+        setItensEntrada(entradaData as ItemEstoque[] || []);
+
+        // Pega todos os itens de saida
+        const { data: saidaData, error: saidaError } = await supabase
+          .from('retirada_itens')
+          .select('quantity, unit, produtos(nome)');
+        if (saidaError) throw saidaError;
+        setItensSaida(saidaData as ItemEstoque[] || []);
+        // --- FIM DOS NOVOS FETCHES ---
 
       } catch (error: any) {
         console.error('Erro ao carregar dados do painel:', error);
@@ -199,26 +235,15 @@ export default function PainelGerenciador() {
 
   // Calcula Stats e Rankings
   const { stats, rankings, pieData, redeStats } = useMemo(() => {
+    // --- LÓGICA DE ATIVIDADE (Existente) ---
     const totalCelulas = celulas.length;
     const celulasAtivas = celulasAtivasIds.size;
     const celulasInativas = totalCelulas - celulasAtivas;
-    
-    // Rankings Gerais (pelo Saldo Total)
-    const mapSupervisao = new Map<string, number>();
-    const mapLideres = new Map<string, number>();
     
     // Stats por Rede
     const mapRedes = new Map<string, { nome: string, ativas: number, inativas: number, total: number, cor: string }>();
 
     celulas.forEach(c => {
-      const kg = c.quantidade_kg || 0;
-      
-      const sup = c.supervisores || 'N/D';
-      mapSupervisao.set(sup, (mapSupervisao.get(sup) || 0) + kg);
-
-      const lid = c.lider || 'N/D';
-      mapLideres.set(lid, (mapLideres.get(lid) || 0) + kg);
-
       // Lógica do gráfico de redes
       const redeNome = c.redes?.cor || 'Sem Rede';
       const redeCor = c.redes?.hex || '#6B7280';
@@ -236,16 +261,31 @@ export default function PainelGerenciador() {
         statsRede.inativas++;
       }
     });
-
-    const rankingSupervisao = Array.from(mapSupervisao.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10);
-      
-    const rankingLideres = Array.from(mapLideres.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10);
-      
     const redeStatsArray = Array.from(mapRedes.values());
+    
+    // --- LÓGICA DE RANKING ATUALIZADA (Request 1 e 2) ---
+    const mapEntradas = new Map<string, number>();
+    itensEntrada.forEach(item => {
+      if (!item.produtos) return;
+      const key = `${item.produtos.nome} (${item.unit || 'un'})`;
+      const qtd = Number(item.quantity) || 0;
+      mapEntradas.set(key, (mapEntradas.get(key) || 0) + qtd);
+    });
+    const rankingEntradas = Array.from(mapEntradas.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 15);
+
+    const mapSaidas = new Map<string, number>();
+    itensSaida.forEach(item => {
+      if (!item.produtos) return;
+      const key = `${item.produtos.nome} (${item.unit || 'un'})`;
+      const qtd = Number(item.quantity) || 0;
+      mapSaidas.set(key, (mapSaidas.get(key) || 0) + qtd);
+    });
+    const rankingSaidas = Array.from(mapSaidas.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 15);
+    // --- FIM DA LÓGICA ATUALIZADA ---
 
     return {
       stats: {
@@ -254,30 +294,28 @@ export default function PainelGerenciador() {
         celulasInativas
       },
       rankings: {
-        rankingSupervisao,
-        rankingLideres
+        rankingEntradas, // <-- NOVO
+        rankingSaidas    // <-- NOVO
       },
       pieData: [
-        // --- TEXTO ATUALIZADO ---
         { name: 'Entregues', value: celulasAtivas, color: '#4CAF50' },
         { name: 'Não Entregues', value: celulasInativas, color: '#F44336' },
       ],
       redeStats: redeStatsArray
     };
-  }, [celulas, celulasAtivasIds]);
+  }, [celulas, celulasAtivasIds, itensEntrada, itensSaida]); // <-- Dependências atualizadas
 
   // --- FUNÇÃO DE EXPORTAR ATUALIZADA ---
   const handleExportExcel = () => {
     try {
       const dadosParaExportar = celulas.map(c => {
-        // A lógica de "Status" agora usa a lista filtrada por data
-        const status = celulasAtivasIds.has(c.id) ? 'Entregue' : 'Não Entregue'; // <-- TEXTO ATUALIZADO
+        const status = celulasAtivasIds.has(c.id) ? 'Entregue' : 'Não Entregue';
         return {
           'Célula': c.nome,
           'Líderes': c.lider,
           'Supervisores': c.supervisores,
           'Rede': c.redes?.cor || 'N/D',
-          'Status no Período': status, // <-- Título da coluna atualizado
+          'Status no Período': status, 
           'Total KG': c.quantidade_kg,
           'Total Itens': c.quantidade_itens
         };
@@ -344,7 +382,6 @@ export default function PainelGerenciador() {
       
       {/* Cards de Resumo */}
       <div className="grid gap-4 sm:grid-cols-3">
-        {/* Card Total de Células */}
         <div className={`rounded-xl bg-gradient-to-br from-indigo-500 to-blue-500 p-[1px] shadow`}>
           <div className="rounded-xl bg-white p-4 flex items-center justify-between">
             <div>
@@ -354,23 +391,19 @@ export default function PainelGerenciador() {
             <Users className="text-blue-500" size={24} />
           </div>
         </div>
-        {/* Card Células Entregues */}
         <div className={`rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 p-[1px] shadow`}>
           <div className="rounded-xl bg-white p-4 flex items-center justify-between">
             <div>
               <div className="text-3xl font-bold text-slate-800">{stats.celulasAtivas}</div>
-              {/* --- TEXTO ATUALIZADO --- */}
               <div className="text-sm text-slate-500">Células Entregues</div>
             </div>
             <TrendingUp className="text-green-500" size={24} />
           </div>
         </div>
-        {/* Card Células Não Entregues */}
         <div className={`rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 p-[1px] shadow`}>
           <div className="rounded-xl bg-white p-4 flex items-center justify-between">
             <div>
               <div className="text-3xl font-bold text-slate-800">{stats.celulasInativas}</div>
-              {/* --- TEXTO ATUALIZADO --- */}
               <div className="text-sm text-slate-500">Células Não Entregues</div>
             </div>
             <TrendingDown className="text-pink-500" size={24} />
@@ -378,17 +411,15 @@ export default function PainelGerenciador() {
         </div>
       </div>
 
-      {/* Rankings Gerais */}
+      {/* --- RANKINGS ATUALIZADOS --- */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
-        <RankingBox title="Top 10 Supervisão (Total KG)" data={rankings.rankingSupervisao} />
-        <RankingBox title="Top 10 Líderes (Total KG)" data={rankings.rankingLideres} />
+        <RankingBox title="Top 15 Produtos (Entradas)" data={rankings.rankingEntradas} />
+        <RankingBox title="Top 15 Produtos (Saídas)" data={rankings.rankingSaidas} />
       </div>
 
       {/* Gráficos de Atividade */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
-        {/* Gráfico de Pizza Geral */}
         <div className="lg:col-span-1 rounded-xl border border-slate-200 bg-white p-4">
-          {/* --- TEXTO ATUALIZADO --- */}
           <h3 className="mb-2 text-lg font-semibold text-slate-800">Status de Entrega no Período</h3>
           <div className="flex flex-col items-center gap-4">
             <div className="flex-shrink-0">
@@ -409,9 +440,7 @@ export default function PainelGerenciador() {
           </div>
         </div>
 
-        {/* Gráfico Atividade por Rede */}
         <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-4">
-          {/* --- TEXTO ATUALIZADO --- */}
           <h3 className="mb-4 text-lg font-semibold text-slate-800">Status por Rede no Período</h3>
           <AtividadeRedesChart data={redeStats} />
         </div>
