@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { Package, Truck, Tag } from 'lucide-react'; // <-- Ícone Tag adicionado
 
 const itemClass =
   "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100";
@@ -21,14 +22,38 @@ export default function Sidebar() {
         >
           <span>🏠</span> Células
         </NavLink>
+        
+        <hr className="my-3 border-slate-200" />
+
         <NavLink
           to="/recebimentos"
           className={({ isActive }) => `${itemClass} ${isActive ? activeClass : ""}`}
         >
           <span>📥</span> Recebimentos
         </NavLink>
+        <NavLink
+          to="/estoque"
+          className={({ isActive }) => `${itemClass} ${isActive ? activeClass : ""}`}
+        >
+          <Package size={16} />
+          Estoque
+        </NavLink>
+        <NavLink
+          to="/retiradas"
+          className={({ isActive }) => `${itemClass} ${isActive ? activeClass : ""}`}
+        >
+          <Truck size={16} />
+          Retiradas
+        </NavLink>
+        {/* --- LINK DE CATEGORIAS ADICIONADO --- */}
+        <NavLink
+          to="/categorias"
+          className={({ isActive }) => `${itemClass} ${isActive ? activeClass : ""}`}
+        >
+          <Tag size={16} />
+          Categorias
+        </NavLink>
 
-        {/* --- LINK ADICIONADO --- */}
         <hr className="my-3 border-slate-200" />
         <NavLink
           to="/painel-gerenciador"

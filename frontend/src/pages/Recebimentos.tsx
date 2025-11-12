@@ -1,11 +1,12 @@
 // frontend/src/pages/Recebimentos.tsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, KeyboardEvent } from 'react';
 import { 
   Plus, Package, Edit, Trash2, Eye, Save, X, Camera, Scan, 
   ShoppingCart, Download, Search, ChevronDown, ChevronUp, CheckCircle, Calendar
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
-import toast from 'react-hot-toast';
+import toast, { Toaster } from 'react-hot-toast'; 
+import * as XLSX from 'xlsx'; // Importa a biblioteca de Excel
 
 // --- Interfaces Corrigidas ---
 interface Categoria {
@@ -31,7 +32,7 @@ interface Produto {
 interface ReceiptItemForm {
   produto_id: number;
   produto_nome?: string;
-  quantity: number;
+  quantity: number | string; // <-- ATUALIZADO para string para lidar com '0'
   unit: string;
   expires_at: string; // Data de validade
   priority: 'normal' | 'imediato';
@@ -73,7 +74,7 @@ export default function RecebimentosPage() {
   const [items, setItems] = useState<ReceiptItemForm[]>([]);
   const [currentItem, setCurrentItem] = useState<ReceiptItemForm>({
     produto_id: 0,
-    quantity: 0,
+    quantity: 0, // Começa com 0
     unit: 'kg',
     expires_at: '',
     priority: 'normal',
@@ -86,6 +87,7 @@ export default function RecebimentosPage() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showDetalhes, setShowDetalhes] = useState<number | null>(null);
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
+  const [activeIndex, setActiveIndex] = useState(-1); 
 
   // Estados para novo produto
   const [novoProduto, setNovoProduto] = useState({
@@ -105,18 +107,13 @@ export default function RecebimentosPage() {
     try {
       setLoading(true);
 
-      // 1. Carregar Recibos (receipts) com join em Itens (receipt_items) e Produtos (produtos)
+      // 1. Carregar Recibos (receipts)
       const { data: recebimentosData, error: recError } = await supabase
         .from('receipts')
         .select(`
-          id,
-          notes,
-          status,
-          created_at,
-          created_by,
+          id, notes, status, created_at, created_by,
           receipt_items (
-            id,
-            quantity,
+            id, quantity,
             produtos (
               nome,
               unidade
@@ -124,7 +121,6 @@ export default function RecebimentosPage() {
           )
         `)
         .order('created_at', { ascending: false });
-
       if (recError) throw recError;
 
       // 2. Carregar Produtos com join em Categorias
@@ -132,7 +128,6 @@ export default function RecebimentosPage() {
         .from('produtos')
         .select('*, categorias(nome, cor)')
         .order('nome');
-
       if (prodError) throw prodError;
 
       // 3. Carregar Categorias
@@ -140,7 +135,6 @@ export default function RecebimentosPage() {
         .from('categorias')
         .select('*')
         .order('nome');
-
       if (catError) throw catError;
 
       setRecebimentos(recebimentosData as Receipt[] || []);
@@ -155,12 +149,6 @@ export default function RecebimentosPage() {
     }
   };
 
-  // Filtrar produtos por categoria e busca
-  const produtosFiltrados = produtos.filter(produto => {
-    const matchBusca = produto.nome.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchBusca;
-  });
-
   // Filtrar produtos para sugestões de busca
   const produtosSugeridos = searchTerm.length > 0 
     ? produtos.filter(produto => 
@@ -174,10 +162,11 @@ export default function RecebimentosPage() {
       ...prev,
       produto_id: produto.id,
       produto_nome: produto.nome,
-      unit: produto.unidade || 'un' // Puxa a unidade padrão do produto
+      unit: produto.unidade || 'un' 
     }));
     setSearchTerm(produto.nome);
     setShowSuggestions(false);
+    setActiveIndex(-1); // Reseta o índice
   };
 
   // --- FUNÇÃO DE CADASTRAR PRODUTO CORRIGIDA ---
@@ -194,31 +183,34 @@ export default function RecebimentosPage() {
         .insert({
           nome: novoProduto.nome,
           categoria_id: Number(novoProduto.categoria_id),
-          unidade: novoProduto.unidade,
-          codigo_barras: novoProduto.codigo_barras || null
+          unidade: novoProduto.unidade
         })
         .select('*, categorias(nome, cor)')
         .single();
-
       if (error) throw error;
       
+      // 2. Salva o código de barras (se houver)
+      if (produtoCriado && novoProduto.codigo_barras) {
+        const { error: barcodeError } = await supabase
+          .from('product_barcodes')
+          .insert({
+            product_id: produtoCriado.id,
+            barcode: novoProduto.codigo_barras
+          });
+        if (barcodeError) {
+          throw new Error(`Produto salvo, mas falha ao salvar barcode: ${barcodeError.message}`);
+        }
+      }
+
       toast.success('Produto cadastrado com sucesso!');
 
-      // 2. Adiciona o novo produto à lista local (para não precisar recarregar)
+      // 3. Atualiza UI
       setProdutos(prev => [...prev, produtoCriado as Produto]);
-      
-      // 3. Seleciona o produto recém-criado
       selecionarProduto(produtoCriado as Produto);
-
-      // 4. Reseta o formulário
-      setNovoProduto({
-        nome: '',
-        categoria_id: 0,
-        unidade: 'kg',
-        codigo_barras: ''
-      });
+      setNovoProduto({ nome: '', categoria_id: 0, unidade: 'kg', codigo_barras: '' });
       setShowNovoProdutoForm(false);
-      setSearchTerm(produtoCriado.nome); // Coloca o nome do novo produto na busca
+      setSearchTerm(produtoCriado.nome);
+      setActiveIndex(-1);
       
     } catch (error: any) {
       console.error('Erro ao cadastrar produto:', error);
@@ -228,7 +220,8 @@ export default function RecebimentosPage() {
 
   // Adicionar item na lista
   const adicionarItem = () => {
-    if (currentItem.produto_id === 0 || currentItem.quantity <= 0) {
+    const quantidadeNum = Number(currentItem.quantity);
+    if (currentItem.produto_id === 0 || quantidadeNum <= 0) {
       toast.error('Selecione um produto e informe a quantidade.');
       return;
     }
@@ -236,6 +229,7 @@ export default function RecebimentosPage() {
     const produto = produtos.find(p => p.id === currentItem.produto_id);
     const novoItem: ReceiptItemForm = {
       ...currentItem,
+      quantity: quantidadeNum, 
       produto_nome: produto?.nome
     };
 
@@ -253,13 +247,14 @@ export default function RecebimentosPage() {
     // Reset do formulário
     setCurrentItem({
       produto_id: 0,
-      quantity: 0,
+      quantity: 0, 
       unit: 'kg',
       expires_at: '',
       priority: 'normal',
       lot_code: ''
     });
     setSearchTerm('');
+    setActiveIndex(-1);
   };
 
   const editarItem = (index: number) => {
@@ -283,7 +278,7 @@ export default function RecebimentosPage() {
     toast.success('Item removido.');
   };
 
-  // Gerar relatório do dia (simples)
+  // --- FUNÇÃO DE GERAR RELATÓRIO CORRIGIDA ---
   const gerarRelatorio = () => {
     const hoje = new Date().toISOString().split('T')[0];
     const recebimentosHoje = recebimentos.filter(r => 
@@ -294,11 +289,30 @@ export default function RecebimentosPage() {
       toast.error('Nenhum recebimento encontrado para hoje');
       return;
     }
-    // ... (lógica de geração de relatório) ...
+
+    // Formata os dados para o Excel
+    const dadosExportar = recebimentosHoje.flatMap(r => 
+      r.receipt_items.map(item => ({
+        'ID Recebimento': r.id,
+        'Data': new Date(r.created_at).toLocaleString('pt-BR'),
+        'Produto': item.produtos?.nome || 'N/D',
+        'Quantidade': item.quantity,
+        'Unidade': item.produtos?.unidade || 'N/D',
+        'Observações': r.notes || ''
+      }))
+    );
+
+    const ws = XLSX.utils.json_to_sheet(dadosExportar);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Relatório do Dia");
+
+    const nomeArquivo = `Relatorio_Recebimentos_${hoje}.xlsx`;
+    XLSX.writeFile(wb, nomeArquivo);
+    
     toast.success('Relatório gerado e baixado com sucesso!');
   };
 
-  // --- FUNÇÃO DE SALVAR RECEBIMENTO CORRIGIDA ---
+  // --- FUNÇÃO DE SALVAR RECEBIMENTO CORRIGIDA (ERRO 'atualizado_em') ---
   const salvarRecebimento = async () => {
     if (items.length === 0) {
       toast.error('Adicione pelo menos um item');
@@ -311,8 +325,7 @@ export default function RecebimentosPage() {
         .from('receipts')
         .insert({
           notes: formData.notes || null,
-          status: 'posted' // Status 'postado' ou 'concluído'
-          // created_by será preenchido pelo Supabase (se configurado)
+          status: 'posted' 
         })
         .select()
         .single();
@@ -321,9 +334,9 @@ export default function RecebimentosPage() {
 
       // 2. Salvar os itens do recibo (tabela 'receipt_items')
       const itensParaSalvar = items.map(item => ({
-        receipt_id: novoRecebimento.id, // ID do recibo pai
+        receipt_id: novoRecebimento.id, 
         product_id: item.produto_id,
-        quantity: item.quantity,
+        quantity: Number(item.quantity), 
         unit: item.unit,
         expires_at: item.expires_at || null,
         priority: item.priority,
@@ -332,25 +345,84 @@ export default function RecebimentosPage() {
       }));
 
       const { error: itensError } = await supabase
-        .from('receipt_items') // Nome correto da tabela
+        .from('receipt_items') 
         .insert(itensParaSalvar);
 
       if (itensError) throw itensError;
 
-      // 3. Recarregar dados
+      // 3. --- LÓGICA: ATUALIZAR O ESTOQUE ---
+      for (const item of items) {
+        const { data: estoqueAtual, error: getError } = await supabase
+          .from('estoque')
+          .select('quantidade_atual')
+          .eq('produto_id', item.produto_id)
+          .single();
+
+        if (getError && getError.code !== 'PGRST116') { // PGRST116 = 'no rows found'
+          throw new Error(`Falha ao buscar estoque: ${getError.message}`);
+        }
+        
+        const saldoAnterior = estoqueAtual?.quantidade_atual || 0;
+        const novoSaldo = saldoAnterior + Number(item.quantity);
+
+        // --- CORREÇÃO DO ERRO 'atualizado_em' ---
+        const { error: upsertError } = await supabase
+          .from('estoque')
+          .upsert({
+            produto_id: item.produto_id,
+            quantidade_atual: novoSaldo,
+            localizacao: 'Estoque Principal',
+            atualizado_em: new Date().toISOString() // <-- CORREÇÃO
+          }, {
+            onConflict: 'produto_id' // Garante que o 'upsert' use o produto_id
+          });
+
+        if (upsertError) {
+          throw new Error(`Falha ao atualizar estoque: ${upsertError.message}`);
+        }
+
+        await supabase.from('stock_movements').insert({
+          product_id: item.produto_id,
+          quantity: Number(item.quantity), 
+          type: 'IN',
+          receipt_id: novoRecebimento.id 
+        });
+      }
+      // --- FIM DA LÓGICA DE ESTOQUE ---
+
+      // 4. Recarregar dados
       carregarDados();
       
-      // 4. Limpar formulário
+      // 5. Limpar formulário
       setFormData({ notes: '' });
       setItems([]);
       setIsModalOpen(false);
       setEditingItemIndex(null);
       
-      toast.success('Recebimento salvo com sucesso!');
+      toast.success('Recebimento salvo e estoque atualizado!');
       
     } catch (error: any) {
       console.error('Erro ao salvar:', error);
       toast.error('Erro ao salvar recebimento: ' + error.message);
+    }
+  };
+  
+  // --- FUNÇÃO ADICIONADA: NAVEGAÇÃO POR TECLADO ---
+  const handleSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (produtosSugeridos.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveIndex(prev => (prev >= produtosSugeridos.length - 1 ? 0 : prev + 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIndex(prev => (prev <= 0 ? produtosSugeridos.length - 1 : prev - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIndex > -1 && produtosSugeridos[activeIndex]) {
+        selecionarProduto(produtosSugeridos[activeIndex]);
+        setActiveIndex(-1); // Reseta o índice
+      }
     }
   };
 
@@ -370,6 +442,8 @@ export default function RecebimentosPage() {
 
   return (
     <div className="space-y-4 lg:space-y-6 p-4 lg:p-0">
+      <Toaster /> 
+      
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <h2 className="flex items-center gap-2 text-xl lg:text-2xl font-bold text-slate-800">
@@ -550,19 +624,24 @@ export default function RecebimentosPage() {
                         onChange={(e) => {
                           setSearchTerm(e.target.value);
                           setShowSuggestions(e.target.value.length > 0);
+                          setActiveIndex(-1);
                         }}
                         onFocus={() => setShowSuggestions(searchTerm.length > 0)}
                         onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                        onKeyDown={handleSearchKeyDown} // <-- NAVEGAÇÃO POR TECLADO
                         placeholder="Buscar produtos..."
                         className="w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                       />
                       {showSuggestions && produtosSugeridos.length > 0 && (
                         <div className="absolute z-10 w-full mt-1 bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                          {produtosSugeridos.map(produto => (
+                          {produtosSugeridos.map((produto, index) => (
                             <button
                               key={produto.id}
                               onClick={() => selecionarProduto(produto)}
-                              className="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
+                              className={`w-full text-left px-3 py-2 border-b border-slate-100 last:border-b-0 ${
+                                index === activeIndex ? 'bg-slate-100' : 'hover:bg-slate-50'
+                              }`}
+                              onMouseEnter={() => setActiveIndex(index)}
                             >
                               <div className="font-medium text-sm">{produto.nome}</div>
                               <div className="text-xs text-slate-500">{produto.categorias?.nome}</div>
@@ -649,10 +728,19 @@ export default function RecebimentosPage() {
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Quantidade *</label>
+                        {/* --- CORREÇÃO DO "0" --- */}
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
                           value={currentItem.quantity}
-                          onChange={(e) => setCurrentItem(prev => ({ ...prev, quantity: Number(e.target.value) }))}
+                          onChange={(e) => {
+                            const valor = e.target.value;
+                            if (valor === '' || /^[0-9]*\.?[0-9]*$/.test(valor)) {
+                              setCurrentItem(prev => ({ ...prev, quantity: valor }));
+                            }
+                          }}
+                          onFocus={(e) => e.target.value === '0' && setCurrentItem(prev => ({ ...prev, quantity: '' }))}
+                          onBlur={(e) => e.target.value === '' && setCurrentItem(prev => ({ ...prev, quantity: 0 }))}
                           className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                           placeholder="0" min="0" step="0.1"
                         />

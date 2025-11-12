@@ -7,7 +7,10 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Celulas from "./pages/Celulas";
 import Recebimentos from "./pages/Recebimentos";
-import PainelGerenciador from "./pages/PainelGerenciador"; // <-- ADICIONADO
+import PainelGerenciador from "./pages/PainelGerenciador";
+import Estoque from "./pages/Estoque";
+import Retiradas from "./pages/Retiradas"; 
+import Categorias from "./pages/Categorias"; // <-- ADICIONADO
 
 export default function App() {
   const [session, setSession] = useState<null | { user: any }>(null);
@@ -52,7 +55,10 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="celulas" element={<Celulas />} />
           <Route path="recebimentos" element={<Recebimentos />} />
-          <Route path="painel-gerenciador" element={<PainelGerenciador />} /> {/* <-- ADICIONADO */}
+          <Route path="estoque" element={<Estoque />} />
+          <Route path="retiradas" element={<Retiradas />} />
+          <Route path="categorias" element={<Categorias />} /> {/* <-- ADICIONADO */}
+          <Route path="painel-gerenciador" element={<PainelGerenciador />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
