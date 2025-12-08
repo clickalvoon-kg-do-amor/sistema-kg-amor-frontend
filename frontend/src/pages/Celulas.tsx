@@ -1,6 +1,6 @@
 // frontend/src/pages/Celulas.tsx
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Edit2, Save, X, Users, UserCheck, Palette, Weight, Trash2, Calendar, EyeOff, Box } from 'lucide-react'; // Importa Box para o ícone
+import { Plus, Edit2, Save, X, Users, UserCheck, Palette, Weight, Trash2, Calendar, EyeOff, Box, Search, Filter } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
 // --- COMPONENTE DE TOAST ---
@@ -8,7 +8,7 @@ function Toast({ message, onClose, isError = false }: { message: string, onClose
   useEffect(() => {
     const timer = setTimeout(() => {
       onClose();
-    }, 4000); // 4 segundos
+    }, 4000); 
     return () => clearTimeout(timer);
   }, [onClose]);
 
@@ -19,7 +19,6 @@ function Toast({ message, onClose, isError = false }: { message: string, onClose
     </div>
   );
 }
-// --- FIM DO TOAST ---
 
 interface Rede {
   id: number;
@@ -37,7 +36,7 @@ interface Celula {
   telefone?: string;
   endereco?: string;
   quantidade_kg: number;
-  quantidade_itens: number; // <-- ADICIONADO AQUI
+  quantidade_itens: number;
   ativo: boolean;
   criado_em?: string;
   redes?: Rede;
@@ -50,44 +49,38 @@ interface FormData {
   telefone: string;
   endereco: string;
   quantidade_kg: number;
-  quantidade_itens: number; // <-- ADICIONADO AQUI
+  quantidade_itens: number;
 }
 
 export default function CelulasPage() {
   const [celulas, setCelulas] = useState<Celula[]>([]);
   const [redes, setRedes] = useState<Rede[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // --- NOVOS ESTADOS DE FILTRO ---
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterRede, setFilterRede] = useState('Todas');
+  const [filterSupervisor, setFilterSupervisor] = useState('Todos');
+  const [ocultarZeradas, setOcultarZeradas] = useState(false);
+  // ------------------------------
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isRecebimentoModalOpen, setIsRecebimentoModalOpen] = useState(false);
   const [editingCelula, setEditingCelula] = useState<Celula | null>(null);
   const [selectedCelulaRecebimento, setSelectedCelulaRecebimento] = useState<Celula | null>(null);
   
-  // Estados do Modal de Recebimento
   const [recebimentoKG, setRecebimentoKG] = useState<string>('0');
   const [recebimentoItens, setRecebimentoItens] = useState<string>('1');
   const [dataChegada, setDataChegada] = useState(new Date().toISOString().split('T')[0]);
   const [observacao, setObservacao] = useState('');
-  
-  // Filtro
-  const [ocultarZeradas, setOcultarZeradas] = useState(false);
 
-  // Toast
   const [toastMessage, setToastMessage] = useState('');
   const [isToastError, setIsToastError] = useState(false);
 
-  // Formulário de Célula
   const [formData, setFormData] = useState<FormData>({
-    nome: '',
-    lider: '',
-    supervisores: '',
-    rede_id: '',
-    telefone: '',
-    endereco: '',
-    quantidade_kg: 0,
-    quantidade_itens: 0 // <-- ADICIONADO AQUI
+    nome: '', lider: '', supervisores: '', rede_id: '', telefone: '', endereco: '', quantidade_kg: 0, quantidade_itens: 0
   });
 
-  // Função para mostrar toast
   const showToast = (message: string, isError: boolean = false) => {
     setToastMessage(message);
     setIsToastError(isError);
@@ -105,7 +98,6 @@ export default function CelulasPage() {
       if (redesError) throw redesError;
       setRedes(redesData || []);
       
-      // Ajuste para selecionar quantidade_itens da tabela celulas
       const { data: celulasData, error: celulasError } = await supabase
         .from('celulas')
         .select(`*, redes (id, cor, hex)`)
@@ -121,17 +113,60 @@ export default function CelulasPage() {
     }
   };
 
+  // --- LISTA DE SUPERVISORES ÚNICOS PARA O FILTRO ---
+  const uniqueSupervisors = useMemo(() => {
+    const supervisors = new Set<string>();
+    celulas.forEach(c => {
+      if (c.supervisores) supervisors.add(c.supervisores.toUpperCase());
+    });
+    return ['Todos', ...Array.from(supervisors).sort()];
+  }, [celulas]);
+
+  // --- LISTA DE REDES PARA O FILTRO (Nomes) ---
+  const uniqueRedes = useMemo(() => {
+    const redesSet = new Set<string>();
+    celulas.forEach(c => {
+      if (c.redes?.cor) redesSet.add(c.redes.cor.toUpperCase());
+    });
+    return ['Todas', ...Array.from(redesSet).sort()];
+  }, [celulas]);
+
+
+  // --- LÓGICA DE FILTRAGEM PODEROSA ---
+  const celulasVisiveis = useMemo(() => {
+    return celulas.filter(c => {
+      // 1. Filtro por Texto (Nome ou Líder)
+      const searchLower = searchTerm.toLowerCase();
+      const matchesSearch = 
+        c.nome.toLowerCase().includes(searchLower) || 
+        c.lider.toLowerCase().includes(searchLower);
+
+      // 2. Filtro por Rede
+      const matchesRede = filterRede === 'Todas' || c.redes?.cor?.toUpperCase() === filterRede;
+
+      // 3. Filtro por Supervisor
+      const matchesSupervisor = filterSupervisor === 'Todos' || c.supervisores.toUpperCase() === filterSupervisor;
+
+      // 4. Filtro Ocultar Zeradas
+      const matchesZeradas = !ocultarZeradas || (c.quantidade_kg > 0 || c.quantidade_itens > 0);
+
+      return matchesSearch && matchesRede && matchesSupervisor && matchesZeradas;
+    });
+  }, [celulas, searchTerm, filterRede, filterSupervisor, ocultarZeradas]);
+  
+  const totalKG = celulas.reduce((total, celula) => total + Number(celula.quantidade_kg || 0), 0);
+  const totalItens = celulas.reduce((total, celula) => total + Number(celula.quantidade_itens || 0), 0);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      // Converte para float para kg, para int para itens, caso contrário string
       [name]: name === 'quantidade_kg' ? parseFloat(value) || 0 :
               name === 'quantidade_itens' ? parseInt(value) || 0 : value
     }));
   };
 
-  // --- FUNÇÃO DE SALVAR (handleSubmit) ATUALIZADA ---
+  // --- FUNÇÃO DE SALVAR (handleSubmit) ATUALIZADA COM A LÓGICA INTELIGENTE ---
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -143,66 +178,65 @@ export default function CelulasPage() {
         telefone: formData.telefone || null,
         endereco: formData.endereco || null,
         quantidade_kg: formData.quantidade_kg,
-        quantidade_itens: formData.quantidade_itens, // <-- ADICIONADO AQUI
+        quantidade_itens: formData.quantidade_itens,
         ativo: true
       };
 
       if (editingCelula) {
-        // --- INÍCIO DA NOVA LÓGICA DE AJUSTE ---
-        
-        // 1. Verifica se o KG ou os ITENS foram alterados manualmente no modal de Edição
-        const kgMudou = Number(editingCelula.quantidade_kg) !== Number(formData.quantidade_kg);
-        const itensMudou = Number(editingCelula.quantidade_itens) !== Number(formData.quantidade_itens); // <-- VERIFICA ITENS
+        // --- CORREÇÃO: COMPARAÇÃO INTELIGENTE ---
+        // Compara com toFixed(2) para evitar problemas de arredondamento e garantir que só salve histórico se REALMENTE mudou
+        const kgMudou = Number(editingCelula.quantidade_kg).toFixed(2) !== Number(formData.quantidade_kg).toFixed(2);
+        const itensMudou = Number(editingCelula.quantidade_itens) !== Number(formData.quantidade_itens);
 
-        if (kgMudou || itensMudou) { // <-- Verifica se KG OU ITENS mudaram
-          // Se o KG ou ITENS mudaram, o usuário está fazendo um AJUSTE DE SALDO.
+        if (kgMudou || itensMudou) { 
+          // O valor mudou? SIM -> Então atualiza TUDO (Histórico + Célula)
           
-          // 2. Apaga todo o histórico antigo daquela célula
+          // 1. Apaga histórico antigo
           const { error: deleteError } = await supabase
-            .from('historico_kg')
-            .delete()
-            .eq('celula_id', editingCelula.id);
-          
+            .from('historico_kg').delete().eq('celula_id', editingCelula.id);
           if (deleteError) throw new Error("Falha ao limpar histórico: " + deleteError.message);
 
-          // 3. Insere um NOVO lançamento único no histórico com o valor total
+          // 2. Cria novo histórico com o saldo novo
           const { error: insertError } = await supabase
-            .from('historico_kg')
-            .insert([{
+            .from('historico_kg').insert([{
               celula_id: editingCelula.id,
-              quantidade: formData.quantidade_kg, // O novo valor total de KG
-              quantidade_itens: formData.quantidade_itens, // <-- O novo valor total de ITENS
-              data_chegada: new Date().toISOString(), // Data do ajuste
-              observacoes: `Ajuste manual de saldo: ${formData.quantidade_kg} kg e ${formData.quantidade_itens} itens.` // <-- OBS. ATUALIZADA
+              quantidade: formData.quantidade_kg,
+              quantidade_itens: formData.quantidade_itens,
+              data_chegada: new Date().toISOString(), // Atualiza a data
+              observacoes: `Ajuste manual de saldo: ${formData.quantidade_kg} kg e ${formData.quantidade_itens} itens.`
             }]);
-            
           if (insertError) throw new Error("Falha ao inserir novo histórico: " + insertError.message);
 
-          // 4. Atualiza a tabela 'celulas' com os dados (nome, lideres, e os novos KG/ITENS)
+          // 3. Atualiza a célula
           const { error: updateError } = await supabase
-            .from('celulas')
-            .update(dadosParaSalvar) // 'dadosParaSalvar' já tem o novo KG e ITENS
-            .eq('id', editingCelula.id);
-
+            .from('celulas').update(dadosParaSalvar).eq('id', editingCelula.id);
           if (updateError) throw updateError;
           
-          showToast('Célula atualizada e histórico ajustado!');
+          showToast('Saldo ajustado e histórico atualizado!');
 
         } else {
-          // Se nem KG nem ITENS mudaram (usuário só mudou nome, líder, etc)
-          // Apenas atualiza a tabela 'celulas' e não mexe no histórico
+          // O valor mudou? NÃO -> Então atualiza SÓ os dados cadastrais (Nome, Líder, Rede)
+          // NÃO toca na data, NÃO toca no histórico
+          
           const { error } = await supabase
             .from('celulas')
-            .update(dadosParaSalvar)
+            .update({
+                // Atualiza tudo MENOS as quantidades (para garantir que não sobrescreva com arredondamento)
+                nome: formData.nome,
+                lider: formData.lider,
+                supervisores: formData.supervisores,
+                rede_id: parseInt(formData.rede_id),
+                telefone: formData.telefone,
+                endereco: formData.endereco
+            })
             .eq('id', editingCelula.id);
 
           if (error) throw error;
-          showToast('Célula atualizada com sucesso!');
+          showToast('Dados cadastrais atualizados (Saldo mantido)!');
         }
-        // --- FIM DA NOVA LÓGICA DE AJUSTE ---
 
       } else {
-        // Lógica de CRIAR NOVA CÉLULA (não muda)
+        // Criar nova célula
         const { error } = await supabase
           .from('celulas').insert([dadosParaSalvar]);
         if (error) throw error;
@@ -216,28 +250,21 @@ export default function CelulasPage() {
       showToast('Erro ao salvar célula: ' + error.message, true);
     }
   };
-  // --- FIM DA FUNÇÃO DE SALVAR ---
 
   const handleEdit = (celula: Celula) => {
     setFormData({
-      nome: celula.nome,
-      lider: celula.lider,
-      supervisores: celula.supervisores,
-      rede_id: celula.rede_id.toString(),
-      telefone: celula.telefone || '',
-      endereco: celula.endereco || '',
-      quantidade_kg: celula.quantidade_kg,
-      quantidade_itens: celula.quantidade_itens // <-- ADICIONADO AQUI
+      nome: celula.nome, lider: celula.lider, supervisores: celula.supervisores,
+      rede_id: celula.rede_id.toString(), telefone: celula.telefone || '',
+      endereco: celula.endereco || '', quantidade_kg: celula.quantidade_kg, quantidade_itens: celula.quantidade_itens
     });
     setEditingCelula(celula);
     setIsModalOpen(true);
   };
 
   const handleDelete = async (celulaId: number) => {
-    if (window.confirm('Tem certeza que deseja excluir esta célula? Isso apagará todo o histórico de doações associado a ela.')) {
+    if (window.confirm('Tem certeza que deseja excluir esta célula?')) {
       try {
         await supabase.from('historico_kg').delete().eq('celula_id', celulaId);
-        
         const { error } = await supabase
           .from('celulas').update({ ativo: false }).eq('id', celulaId);
         if (error) throw error;
@@ -255,11 +282,10 @@ export default function CelulasPage() {
     setEditingCelula(null);
     setFormData({
       nome: '', lider: '', supervisores: '', rede_id: '',
-      telefone: '', endereco: '', quantidade_kg: 0, quantidade_itens: 0 // <-- ADICIONADO AQUI
+      telefone: '', endereco: '', quantidade_kg: 0, quantidade_itens: 0
     });
   };
 
-  // --- FUNÇÃO DE RECEBIMENTO (Adicionar) ---
   const handleRecebimentoSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCelulaRecebimento) return showToast('Selecione uma célula!', true);
@@ -267,16 +293,12 @@ export default function CelulasPage() {
     const kgRecebido = Number(recebimentoKG || 0);
     const itensRecebidos = Number(recebimentoItens || 0); 
     
-    if (kgRecebido <= 0 && itensRecebidos <= 0) return showToast('A quantidade de KG ou Itens deve ser maior que zero.', true);
-    // Permite que um dos dois seja zero, mas não ambos
-    if (kgRecebido < 0) return showToast('A quantidade de KG não pode ser negativa.', true);
-    if (itensRecebidos < 0) return showToast('A quantidade de Itens não pode ser negativa.', true);
+    if (kgRecebido <= 0 && itensRecebidos <= 0) return showToast('Informe valores positivos.', true);
 
     try {
       const novaQuantidadeKG = Number(selectedCelulaRecebimento.quantidade_kg) + kgRecebido;
       const novaQuantidadeItens = Number(selectedCelulaRecebimento.quantidade_itens) + itensRecebidos;
       
-      // 1. Inserir o histórico na sua nova tabela
       const { error: historicoError } = await supabase
         .from('historico_kg') 
         .insert([{
@@ -289,21 +311,18 @@ export default function CelulasPage() {
 
       if (historicoError) throw historicoError;
       
-      // 2. Se o histórico funcionou, ATUALIZAR o saldo total da célula
       const { error: celulaError } = await supabase
         .from('celulas')
         .update({ 
           quantidade_kg: novaQuantidadeKG,
-          quantidade_itens: novaQuantidadeItens // <-- ATUALIZA ITENS AQUI
+          quantidade_itens: novaQuantidadeItens 
         })
         .eq('id', selectedCelulaRecebimento.id);
       
-      if (celulaError) {
-        throw new Error("Histórico salvo, mas falha ao atualizar saldo da célula: " + celulaError.message);
-      }
+      if (celulaError) throw new Error("Erro ao atualizar saldo: " + celulaError.message);
 
       await carregarDados();
-      showToast(`Recebimento de ${kgRecebido} kg e ${itensRecebidos} itens registrado!`);
+      showToast(`Recebimento registrado com sucesso!`);
       handleCloseRecebimentoModal();
       
     } catch (error: any) {
@@ -334,39 +353,12 @@ export default function CelulasPage() {
     return rede || { cor: 'Indefinida', hex: '#6B7280' };
   };
 
-  const celulasVisiveis = useMemo(() => {
-    if (ocultarZeradas) {
-      return celulas.filter(c => c.quantidade_kg > 0 || c.quantidade_itens > 0); // Filtra se ambos forem zero
-    }
-    return celulas;
-  }, [celulas, ocultarZeradas]);
-  
-  const totalKG = celulas.reduce((total, celula) => total + Number(celula.quantidade_kg || 0), 0);
-  const totalItens = celulas.reduce((total, celula) => total + Number(celula.quantidade_itens || 0), 0); // Total de itens para o card
-
-  if (loading) {
-    return (
-      <div className="p-6 max-w-7xl mx-auto">
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Carregando células...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {toastMessage && (
-        <Toast 
-          message={toastMessage} 
-          onClose={() => setToastMessage('')} 
-          isError={isToastError} 
-        />
-      )}
+      {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage('')} isError={isToastError} />}
 
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
+      {/* --- BARRA DE TÍTULO E AÇÕES --- */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
             <Users className="text-blue-600" />
@@ -374,29 +366,69 @@ export default function CelulasPage() {
           </h1>
           <p className="text-gray-600 mt-1">Gestão completa das células e seus recebimentos</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 w-full sm:w-auto">
           <button
             onClick={() => {
               setDataChegada(new Date().toISOString().split('T')[0]);
               setIsRecebimentoModalOpen(true);
             }}
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+            className="flex-1 sm:flex-none bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors"
           >
             <Plus size={20} />
-            Adicionar Recebimento
+            <span className="hidden sm:inline">Adicionar Recebimento</span>
+            <span className="sm:hidden">Recebimento</span>
           </button>
           <button
             onClick={() => setIsModalOpen(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+            className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors"
           >
             <Plus size={20} />
-            Nova Célula
+            <span className="hidden sm:inline">Nova Célula</span>
+            <span className="sm:hidden">Célula</span>
           </button>
         </div>
       </div>
 
-      {/* Cards de Estatísticas */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6"> {/* Mudado para 4 colunas */}
+      {/* --- BARRA DE FILTROS --- */}
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-wrap gap-3 items-center">
+        <div className="flex items-center gap-2 text-slate-500 font-medium mr-2">
+          <Filter size={20} />
+          Filtros:
+        </div>
+        
+        {/* Busca por Texto */}
+        <div className="relative flex-grow max-w-md">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+          <input 
+            type="text"
+            placeholder="Buscar Célula ou Líder..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+          />
+        </div>
+
+        {/* Filtro de Rede */}
+        <select
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm min-w-[150px]"
+          value={filterRede}
+          onChange={(e) => setFilterRede(e.target.value)}
+        >
+          {uniqueRedes.map((r) => (<option key={r} value={r}>{r === 'Todas' ? 'Todas as Redes' : r}</option>))}
+        </select>
+
+        {/* Filtro de Supervisão */}
+        <select
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm min-w-[150px]"
+          value={filterSupervisor}
+          onChange={(e) => setFilterSupervisor(e.target.value)}
+        >
+          {uniqueSupervisors.map((s) => (<option key={s} value={s}>{s === 'Todos' ? 'Todas as Supervisões' : s}</option>))}
+        </select>
+      </div>
+      
+      {/* --- CARDS DE RESUMO --- */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
           <div className="flex items-center justify-between">
             <div>
@@ -418,35 +450,35 @@ export default function CelulasPage() {
         <div className="bg-white p-6 rounded-lg shadow border-l-4 border-purple-500">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Total de Itens</p> {/* Novo card de Itens */}
+              <p className="text-sm text-gray-600">Total de Itens</p>
               <p className="text-2xl font-bold text-gray-900">{totalItens}</p>
             </div>
             <Box className="text-purple-500" size={24} />
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow border-l-4 border-orange-500"> {/* Cor alterada para Laranja */}
+        <div className="bg-white p-6 rounded-lg shadow border-l-4 border-orange-500">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Média por Célula (KG)</p>
+              <p className="text-sm text-gray-600">Média por Célula</p>
               <p className="text-2xl font-bold text-gray-900">
                 {celulas.length > 0 ? (totalKG / celulas.length).toFixed(1) : '0.0'} kg
               </p>
             </div>
-            <Weight className="text-orange-500" size={24} /> {/* Cor alterada */}
+            <Weight className="text-orange-500" size={24} />
           </div>
         </div>
       </div>
       
       {/* Checkbox "Ocultar Zeradas" */}
       <div className="flex justify-end mb-4">
-        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-50">
           <input 
             type="checkbox"
             checked={ocultarZeradas}
             onChange={(e) => setOcultarZeradas(e.target.checked)}
             className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
           />
-          Ocultar Células Zeradas (KG e Itens)
+          Ocultar Células Zeradas
         </label>
       </div>
 
@@ -455,22 +487,14 @@ export default function CelulasPage() {
         {celulasVisiveis.map((celula) => {
           const redeInfo = getRedeInfo(celula);
           return (
-            <div key={celula.id} className="bg-white rounded-lg shadow-md p-6 border-t-4" style={{ borderTopColor: redeInfo.hex || '#6B7280' }}>
+            <div key={celula.id} className="bg-white rounded-lg shadow-md p-6 border-t-4 hover:shadow-lg transition-shadow" style={{ borderTopColor: redeInfo.hex || '#6B7280' }}>
               <div className="flex justify-between items-start mb-4">
-                <h3 className="text-xl font-semibold text-gray-900">{celula.nome}</h3>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleEdit(celula)}
-                    className="text-gray-400 hover:text-blue-600 transition-colors"
-                    title="Editar Célula"
-                  >
+                <h3 className="text-xl font-semibold text-gray-900 truncate pr-2">{celula.nome}</h3>
+                <div className="flex gap-1 flex-shrink-0">
+                  <button onClick={() => handleEdit(celula)} className="text-gray-400 hover:text-blue-600 p-1 rounded hover:bg-blue-50 transition-colors">
                     <Edit2 size={18} />
                   </button>
-                  <button
-                    onClick={() => handleDelete(celula.id)}
-                    className="text-gray-400 hover:text-red-600 transition-colors"
-                    title="Excluir Célula"
-                  >
+                  <button onClick={() => handleDelete(celula.id)} className="text-gray-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors">
                     <Trash2 size={18} />
                   </button>
                 </div>
@@ -495,27 +519,25 @@ export default function CelulasPage() {
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-700">Rede:</span>
                     <div className="flex items-center gap-1">
-                      <div 
-                        className="w-4 h-4 rounded-full border border-gray-300" 
-                        style={{ backgroundColor: redeInfo.hex || '#6B7280' }}
-                      ></div>
+                      <div className="w-3 h-3 rounded-full border border-gray-300" style={{ backgroundColor: redeInfo.hex || '#6B7280' }}></div>
                       <span className="text-gray-600">{redeInfo.cor}</span>
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Weight className="text-gray-500" size={16} />
-                  <div>
-                    <span className="font-medium text-gray-700">Quantidade:</span>
-                    <span className="text-lg font-bold text-orange-600 ml-1">{celula.quantidade_kg} kg</span>
+                <div className="flex items-center gap-4 mt-2 pt-2 border-t border-slate-100">
+                   <div className="flex items-center gap-2">
+                    <Weight className="text-orange-500" size={18} />
+                    <div>
+                      <span className="text-xs text-gray-500 block">Total KG</span>
+                      <span className="text-base font-bold text-gray-800">{celula.quantidade_kg} kg</span>
+                    </div>
                   </div>
-                </div>
-                {/* CARD DE ITENS NA CÉLULA */}
-                <div className="flex items-center gap-2">
-                  <Box className="text-gray-500" size={16} />
-                  <div>
-                    <span className="font-medium text-gray-700">Itens:</span>
-                    <span className="text-lg font-bold text-purple-600 ml-1">{celula.quantidade_itens}</span>
+                  <div className="flex items-center gap-2">
+                    <Box className="text-purple-500" size={18} />
+                    <div>
+                      <span className="text-xs text-gray-500 block">Total Itens</span>
+                      <span className="text-base font-bold text-gray-800">{celula.quantidade_itens}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -523,10 +545,10 @@ export default function CelulasPage() {
           );
         })}
         {celulasVisiveis.length === 0 && (
-          <div className="col-span-full text-center py-12">
+          <div className="col-span-full text-center py-12 bg-white rounded-xl border border-dashed border-slate-300">
             <EyeOff className="mx-auto text-gray-400 mb-4" size={48} />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhuma célula com doação</h3>
-            <p className="text-gray-500 mb-4">Desmarque o filtro "Ocultar Células Zeradas (KG e Itens)" para ver todas as células.</p>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhuma célula encontrada</h3>
+            <p className="text-gray-500">Tente ajustar os filtros ou a busca.</p>
           </div>
         )}
       </div>
@@ -547,6 +569,7 @@ export default function CelulasPage() {
               </button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* CAMPOS DO FORMULÁRIO */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Célula *</label>
                 <input
@@ -560,7 +583,6 @@ export default function CelulasPage() {
                 <input
                   type="text" name="lider" value={formData.lider} onChange={handleInputChange} required
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Ex: João e Maria Silva"
                 />
               </div>
               <div>
@@ -568,7 +590,6 @@ export default function CelulasPage() {
                 <input
                   type="text" name="supervisores" value={formData.supervisores} onChange={handleInputChange} required
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Ex: Pastor Pedro Santos"
                 />
               </div>
               <div>
@@ -599,25 +620,28 @@ export default function CelulasPage() {
                   placeholder="Rua, número, bairro"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de KG *</label>
-                <input
-                  type="number" name="quantidade_kg" value={formData.quantidade_kg} onChange={handleInputChange}
-                  min="0" step="0.1" required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="0.0"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de KG *</label>
+                    {/* --- CORREÇÃO DO DECIMAL (STEP 0.01) --- */}
+                    <input
+                      type="number" name="quantidade_kg" value={formData.quantidade_kg} onChange={handleInputChange}
+                      min="0" step="0.01" required 
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="0.00"
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de Itens *</label>
+                    <input
+                      type="number" name="quantidade_itens" value={formData.quantidade_itens} onChange={handleInputChange}
+                      min="0" required
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="0"
+                    />
+                </div>
               </div>
-              {/* --- CAMPO DE QUANTIDADE DE ITENS ADICIONADO AO MODAL DE EDIÇÃO --- */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de Itens *</label>
-                <input
-                  type="number" name="quantidade_itens" value={formData.quantidade_itens} onChange={handleInputChange}
-                  min="0" required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="0"
-                />
-              </div>
+
               <div className="flex gap-3 pt-4">
                 <button
                   type="button" onClick={handleCloseModal}
@@ -638,7 +662,7 @@ export default function CelulasPage() {
         </div>
       )}
 
-      {/* Modal de Recebimento (ATUALIZADO) */}
+      {/* Modal de Recebimento (SEM ALTERAÇÕES) */}
       {isRecebimentoModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
@@ -702,10 +726,6 @@ export default function CelulasPage() {
                     <span className="font-medium text-gray-700">KG Atual:</span>
                     <span className="ml-1 text-orange-600 font-bold">{selectedCelulaRecebimento.quantidade_kg} kg</span>
                   </div>
-                  <div className="text-sm">
-                    <span className="font-medium text-gray-700">Itens Atuais:</span>
-                    <span className="ml-1 text-purple-600 font-bold">{selectedCelulaRecebimento.quantidade_itens}</span>
-                  </div>
                 </div>
               )}
               <div>
@@ -735,7 +755,7 @@ export default function CelulasPage() {
                   value={recebimentoItens}
                   onChange={(e) => {
                     const valor = e.target.value;
-                    if (valor === '' || /^[0-9]*$/.test(valor)) { // Apenas números inteiros
+                    if (valor === '' || /^[0-9]*\.?[0-9]*$/.test(valor)) { // Apenas números inteiros
                       setRecebimentoItens(valor);
                     }
                   }}

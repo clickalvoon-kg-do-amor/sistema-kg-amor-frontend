@@ -1,4 +1,4 @@
-// frontend/src/pages/Dashboard.tsx
+﻿// frontend/src/pages/Dashboard.tsx
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import * as XLSX from 'xlsx'; // Importa a biblioteca de Excel
@@ -41,6 +41,8 @@ const formatPt = (n: number) =>
 const formatInt = (n: number) =>
   new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
 
+// Helper para evitar problemas de fuso/horário ao filtrar datas
+const getDateOnly = (iso: string) => (iso ? iso.slice(0, 10) : '');
 
 function RankingBox({ title, data }: RankingBoxProps) {
   return (
@@ -115,7 +117,11 @@ export default function Dashboard() {
         console.error('Erro ao buscar histórico:', error);
         setTodoHistorico([]);
       } else {
-        setTodoHistorico((data || []) as HistoricoComCelula[]);
+        const normalizados = (data || []).map((r: any) => ({
+          ...r,
+          data_chegada: getDateOnly(r.data_chegada),
+        }));
+        setTodoHistorico(normalizados as HistoricoComCelula[]);
       }
       setLoading(false);
     })();
@@ -136,14 +142,12 @@ export default function Dashboard() {
     }
 
     if (filtros.dataIni) {
-      const dataIni = new Date(filtros.dataIni);
-      dataIni.setUTCHours(0, 0, 0, 0); 
-      arr = arr.filter((r) => new Date(r.data_chegada) >= dataIni);
+      const ini = filtros.dataIni;
+      arr = arr.filter((r) => getDateOnly(r.data_chegada) >= ini);
     }
     if (filtros.dataFim) {
-      const dataFim = new Date(filtros.dataFim);
-      dataFim.setUTCHours(23, 59, 59, 999); 
-      arr = arr.filter((r) => new Date(r.data_chegada) <= dataFim);
+      const fim = filtros.dataFim;
+      arr = arr.filter((r) => getDateOnly(r.data_chegada) <= fim);
     }
 
     return arr;
@@ -212,7 +216,7 @@ export default function Dashboard() {
     const dataRedes = rankingRedes.map(([Rede, KG]) => ({ Rede, KG }));
     
     const dataDetalhada = filtradas.map(r => ({
-      'Data': new Date(r.data_chegada).toLocaleDateString('pt-BR'),
+      'Data': getDateOnly(r.data_chegada),
       'Celula': r.celulas?.nome || 'N/D',
       'Supervisores': r.celulas?.supervisores || 'N/D',
       'Rede': r.celulas?.redes?.cor || 'N/D',
@@ -423,3 +427,4 @@ export default function Dashboard() {
     </div>
   );
 }
+
