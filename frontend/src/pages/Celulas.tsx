@@ -52,6 +52,8 @@ interface FormData {
   quantidade_itens: number;
 }
 
+const REDES_PADRAO = ['ALVO SJP', 'AMARELA', 'AZUL', 'BRANCA', 'MARROM', 'VERDE', 'VERMELHA', 'ROXA'];
+
 export default function CelulasPage() {
   const [celulas, setCelulas] = useState<Celula[]>([]);
   const [redes, setRedes] = useState<Rede[]>([]);
@@ -124,7 +126,7 @@ export default function CelulasPage() {
 
   // --- LISTA DE REDES PARA O FILTRO (Nomes) ---
   const uniqueRedes = useMemo(() => {
-    const redesSet = new Set<string>();
+    const redesSet = new Set<string>(REDES_PADRAO);
     celulas.forEach(c => {
       if (c.redes?.cor) redesSet.add(c.redes.cor.toUpperCase());
     });
