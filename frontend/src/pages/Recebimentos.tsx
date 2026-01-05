@@ -8,6 +8,8 @@ import { supabase } from '../lib/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast'; 
 import * as XLSX from 'xlsx'; // Importa a biblioteca de Excel
 
+const DRAFT_STORAGE_KEY = 'kg_recebimentos_draft_id';
+
 // --- Interfaces Corrigidas ---
 interface Categoria {
   id: number;
@@ -30,6 +32,7 @@ interface Produto {
 
 // Item do recibo (para o formulário)
 interface ReceiptItemForm {
+  id?: number;
   produto_id: number;
   produto_nome?: string;
   quantity: number | string; // <-- ATUALIZADO para string para lidar com '0'
@@ -80,6 +83,8 @@ export default function RecebimentosPage() {
     priority: 'normal',
     lot_code: ''
   });
+  const [draftReceiptId, setDraftReceiptId] = useState<number | null>(null);
+  const [isPersistingItem, setIsPersistingItem] = useState(false);
 
   // Estados para UI
   const [searchTerm, setSearchTerm] = useState('');
@@ -97,9 +102,77 @@ export default function RecebimentosPage() {
     codigo_barras: ''
   });
 
+  const persistDraftId = (id: number | null) => {
+    if (typeof window === 'undefined') return;
+    if (id) {
+      localStorage.setItem(DRAFT_STORAGE_KEY, id.toString());
+    } else {
+      localStorage.removeItem(DRAFT_STORAGE_KEY);
+    }
+  };
+
   // Carregar dados
   useEffect(() => {
     carregarDados();
+  }, []);
+
+  useEffect(() => {
+    const restaurarRascunhoSalvo = async () => {
+      if (typeof window === 'undefined') return;
+      const armazenado = localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (!armazenado) return;
+
+      const draftId = Number(armazenado);
+      if (!draftId) {
+        persistDraftId(null);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('receipts')
+        .select(`
+          id,
+          status,
+          notes,
+          receipt_items (
+            id,
+            product_id,
+            quantity,
+            unit,
+            priority,
+            expires_at,
+            barcode,
+            lot_code,
+            produtos (nome)
+          )
+        `)
+        .eq('id', draftId)
+        .single();
+
+      if (error || !data || data.status !== 'draft') {
+        persistDraftId(null);
+        return;
+      }
+
+      setDraftReceiptId(draftId);
+      persistDraftId(draftId);
+      setItems((data.receipt_items || []).map(item => ({
+        id: item.id,
+        produto_id: item.product_id,
+        produto_nome: item.produtos?.nome || 'Produto',
+        quantity: item.quantity,
+        unit: item.unit,
+        expires_at: item.expires_at || '',
+        priority: item.priority,
+        barcode: item.barcode || undefined,
+        lot_code: item.lot_code || undefined
+      })));
+      setFormData({ notes: data.notes || '' });
+      setActiveTab('manual');
+      setIsModalOpen(true);
+      toast('Recuperamos um rascunho de recebimento.', { icon: 'ℹ️' });
+    };
+    restaurarRascunhoSalvo();
   }, []);
 
   // --- FUNÇÃO DE CARREGAR DADOS CORRIGIDA ---
@@ -120,6 +193,7 @@ export default function RecebimentosPage() {
             )
           )
         `)
+        .eq('status', 'posted')
         .order('created_at', { ascending: false });
       if (recError) throw recError;
 
@@ -147,6 +221,81 @@ export default function RecebimentosPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const atualizarEstoqueComItens = async (receiptId: number, itensParaProcessar: ReceiptItemForm[]) => {
+    for (const item of itensParaProcessar) {
+      const quantidadeNumber = Number(item.quantity) || 0;
+      const { data: estoqueAtual, error: getError } = await supabase
+        .from('estoque')
+        .select('quantidade_atual')
+        .eq('produto_id', item.produto_id)
+        .single();
+
+      if (getError && getError.code !== 'PGRST116') {
+        throw new Error(`Falha ao buscar estoque: ${getError.message}`);
+      }
+
+      const saldoAnterior = estoqueAtual?.quantidade_atual || 0;
+      const novoSaldo = saldoAnterior + quantidadeNumber;
+
+      const { error: upsertError } = await supabase
+        .from('estoque')
+        .upsert({
+          produto_id: item.produto_id,
+          quantidade_atual: novoSaldo,
+          localizacao: 'Estoque Principal',
+          atualizado_em: new Date().toISOString()
+        }, {
+          onConflict: 'produto_id'
+        });
+
+      if (upsertError) {
+        throw new Error(`Falha ao atualizar estoque: ${upsertError.message}`);
+      }
+
+      await supabase.from('stock_movements').insert({
+        product_id: item.produto_id,
+        quantity: quantidadeNumber,
+        type: 'IN',
+        receipt_id: receiptId
+      });
+    }
+  };
+
+  const resetItemForm = () => {
+    setCurrentItem({
+      produto_id: 0,
+      quantity: 0,
+      unit: 'kg',
+      expires_at: '',
+      priority: 'normal',
+      lot_code: ''
+    });
+    setSearchTerm('');
+    setActiveIndex(-1);
+    setEditingItemIndex(null);
+  };
+
+  const limparRascunhoAtual = async () => {
+    if (!draftReceiptId) return;
+    try {
+      await supabase.from('receipt_items').delete().eq('receipt_id', draftReceiptId);
+      await supabase.from('receipts').delete().eq('id', draftReceiptId);
+    } catch (error) {
+      console.error('Erro ao limpar rascunho:', error);
+    } finally {
+      setDraftReceiptId(null);
+      persistDraftId(null);
+    }
+  };
+
+  const fecharModalRecebimento = async () => {
+    await limparRascunhoAtual();
+    setItems([]);
+    setFormData({ notes: '' });
+    resetItemForm();
+    setIsModalOpen(false);
   };
 
   // Filtrar produtos para sugestões de busca
@@ -219,42 +368,146 @@ export default function RecebimentosPage() {
   };
 
   // Adicionar item na lista
-  const adicionarItem = () => {
+  const adicionarItem = async () => {
     const quantidadeNum = Number(currentItem.quantity);
     if (currentItem.produto_id === 0 || quantidadeNum <= 0) {
       toast.error('Selecione um produto e informe a quantidade.');
       return;
     }
 
-    const produto = produtos.find(p => p.id === currentItem.produto_id);
-    const novoItem: ReceiptItemForm = {
-      ...currentItem,
-      quantity: quantidadeNum, 
-      produto_nome: produto?.nome
-    };
+    setIsPersistingItem(true);
+    try {
+      const produto = produtos.find(p => p.id === currentItem.produto_id);
+      let receiptId = draftReceiptId;
 
-    if (editingItemIndex !== null) {
-      setItems(prev => prev.map((item, index) => 
-        index === editingItemIndex ? novoItem : item
-      ));
-      toast.success('Item atualizado!');
-      setEditingItemIndex(null);
-    } else {
-      setItems(prev => [...prev, novoItem]);
-      toast.success('Item adicionado!');
+      if (!receiptId) {
+        const { data: draft, error: draftError } = await supabase
+          .from('receipts')
+          .insert({
+            notes: formData.notes || null,
+            status: 'draft'
+          })
+          .select('id')
+          .single();
+        if (draftError) throw draftError;
+        receiptId = draft?.id;
+        setDraftReceiptId(receiptId || null);
+        persistDraftId(receiptId || null);
+      }
+
+      if (!receiptId) throw new Error('Não foi possível iniciar o rascunho do recebimento.');
+
+      const payload = {
+        receipt_id: receiptId,
+        product_id: currentItem.produto_id,
+        quantity: quantidadeNum,
+        unit: currentItem.unit,
+        expires_at: currentItem.expires_at || null,
+        priority: currentItem.priority,
+        barcode: currentItem.barcode || null,
+        lot_code: currentItem.lot_code || null
+      };
+
+      if (editingItemIndex !== null) {
+        const itemEdicao = items[editingItemIndex];
+        if (itemEdicao?.id) {
+          const { data: atualizado, error: updateError } = await supabase
+            .from('receipt_items')
+            .update(payload)
+            .eq('id', itemEdicao.id)
+            .select(`
+              id,
+              product_id,
+              quantity,
+              unit,
+              priority,
+              expires_at,
+              barcode,
+              lot_code,
+              produtos (nome)
+            `)
+            .single();
+          if (updateError) throw updateError;
+
+          setItems(prev =>
+            prev.map((item, index) =>
+              index === editingItemIndex
+                ? {
+                    id: atualizado.id,
+                    produto_id: atualizado.product_id,
+                    produto_nome: atualizado.produtos?.nome || item.produto_nome,
+                    quantity: atualizado.quantity,
+                    unit: atualizado.unit,
+                    expires_at: atualizado.expires_at || '',
+                    priority: atualizado.priority,
+                    barcode: atualizado.barcode || undefined,
+                    lot_code: atualizado.lot_code || undefined
+                  }
+                : item
+            )
+          );
+        } else {
+          setItems(prev =>
+            prev.map((item, index) =>
+              index === editingItemIndex
+                ? {
+                    ...item,
+                    produto_id: currentItem.produto_id,
+                    produto_nome: produto?.nome || item.produto_nome,
+                    quantity: quantidadeNum,
+                    unit: currentItem.unit,
+                    expires_at: currentItem.expires_at || '',
+                    priority: currentItem.priority,
+                    barcode: currentItem.barcode || undefined,
+                    lot_code: currentItem.lot_code || undefined
+                  }
+                : item
+            )
+          );
+        }
+        setEditingItemIndex(null);
+        toast.success('Item atualizado!');
+      } else {
+        const { data: itemCriado, error: inserirError } = await supabase
+          .from('receipt_items')
+          .insert(payload)
+          .select(`
+            id,
+            product_id,
+            quantity,
+            unit,
+            priority,
+            expires_at,
+            barcode,
+            lot_code,
+            produtos (nome)
+          `)
+          .single();
+        if (inserirError) throw inserirError;
+
+        setItems(prev => [
+          ...prev,
+          {
+            id: itemCriado.id,
+            produto_id: itemCriado.product_id,
+            produto_nome: itemCriado.produtos?.nome || produto?.nome,
+            quantity: itemCriado.quantity,
+            unit: itemCriado.unit,
+            expires_at: itemCriado.expires_at || '',
+            priority: itemCriado.priority,
+            barcode: itemCriado.barcode || undefined,
+            lot_code: itemCriado.lot_code || undefined
+          }
+        ]);
+        toast.success('Item salvo!');
+      }
+    } catch (error: any) {
+      console.error('Erro ao salvar item:', error);
+      toast.error('Erro ao salvar item: ' + error.message);
+    } finally {
+      setIsPersistingItem(false);
+      resetItemForm();
     }
-    
-    // Reset do formulário
-    setCurrentItem({
-      produto_id: 0,
-      quantity: 0, 
-      unit: 'kg',
-      expires_at: '',
-      priority: 'normal',
-      lot_code: ''
-    });
-    setSearchTerm('');
-    setActiveIndex(-1);
   };
 
   const editarItem = (index: number) => {
@@ -265,17 +518,31 @@ export default function RecebimentosPage() {
     setActiveTab('manual');
   };
 
-  const removerItem = (index: number) => {
-    setItems(prev => prev.filter((_, i) => i !== index));
-    if (editingItemIndex === index) {
-      setEditingItemIndex(null);
-      setSearchTerm('');
-      setCurrentItem({
-        produto_id: 0, quantity: 0, unit: 'kg',
-        expires_at: '', priority: 'normal', lot_code: ''
-      });
+  const removerItem = async (index: number) => {
+    const item = items[index];
+    if (!item) return;
+
+    try {
+      if (item.id) {
+        const { error } = await supabase.from('receipt_items').delete().eq('id', item.id);
+        if (error) throw error;
+      }
+
+      setItems(prev => prev.filter((_, i) => i !== index));
+      if (editingItemIndex === index) {
+        resetItemForm();
+      }
+
+      const restouItens = items.length - 1;
+      if (restouItens <= 0 && draftReceiptId) {
+        await limparRascunhoAtual();
+      }
+
+      toast.success('Item removido.');
+    } catch (error: any) {
+      console.error('Erro ao remover item:', error);
+      toast.error('Erro ao remover item: ' + error.message);
     }
-    toast.success('Item removido.');
   };
 
   // --- FUNÇÃO DE GERAR RELATÓRIO CORRIGIDA ---
@@ -320,23 +587,45 @@ export default function RecebimentosPage() {
     }
 
     try {
-      // 1. Salvar o recibo principal (tabela 'receipts')
+      if (draftReceiptId) {
+        const { error: updateError } = await supabase
+          .from('receipts')
+          .update({
+            notes: formData.notes || null,
+            status: 'posted'
+          })
+          .eq('id', draftReceiptId);
+
+        if (updateError) throw updateError;
+
+        await atualizarEstoqueComItens(draftReceiptId, items);
+        await carregarDados();
+
+        setFormData({ notes: '' });
+        setItems([]);
+        setDraftReceiptId(null);
+        persistDraftId(null);
+        resetItemForm();
+        setIsModalOpen(false);
+        toast.success('Recebimento salvo e estoque atualizado!');
+        return;
+      }
+
       const { data: novoRecebimento, error: recError } = await supabase
         .from('receipts')
         .insert({
           notes: formData.notes || null,
-          status: 'posted' 
+          status: 'posted'
         })
         .select()
         .single();
 
       if (recError) throw recError;
 
-      // 2. Salvar os itens do recibo (tabela 'receipt_items')
       const itensParaSalvar = items.map(item => ({
-        receipt_id: novoRecebimento.id, 
+        receipt_id: novoRecebimento.id,
         product_id: item.produto_id,
-        quantity: Number(item.quantity), 
+        quantity: Number(item.quantity),
         unit: item.unit,
         expires_at: item.expires_at || null,
         priority: item.priority,
@@ -345,62 +634,21 @@ export default function RecebimentosPage() {
       }));
 
       const { error: itensError } = await supabase
-        .from('receipt_items') 
+        .from('receipt_items')
         .insert(itensParaSalvar);
 
       if (itensError) throw itensError;
 
-      // 3. --- LÓGICA: ATUALIZAR O ESTOQUE ---
-      for (const item of items) {
-        const { data: estoqueAtual, error: getError } = await supabase
-          .from('estoque')
-          .select('quantidade_atual')
-          .eq('produto_id', item.produto_id)
-          .single();
+      await atualizarEstoqueComItens(novoRecebimento.id, items);
+      await carregarDados();
 
-        if (getError && getError.code !== 'PGRST116') { // PGRST116 = 'no rows found'
-          throw new Error(`Falha ao buscar estoque: ${getError.message}`);
-        }
-        
-        const saldoAnterior = estoqueAtual?.quantidade_atual || 0;
-        const novoSaldo = saldoAnterior + Number(item.quantity);
-
-        // --- CORREÇÃO DO ERRO 'atualizado_em' ---
-        const { error: upsertError } = await supabase
-          .from('estoque')
-          .upsert({
-            produto_id: item.produto_id,
-            quantidade_atual: novoSaldo,
-            localizacao: 'Estoque Principal',
-            atualizado_em: new Date().toISOString() // <-- CORREÇÃO
-          }, {
-            onConflict: 'produto_id' // Garante que o 'upsert' use o produto_id
-          });
-
-        if (upsertError) {
-          throw new Error(`Falha ao atualizar estoque: ${upsertError.message}`);
-        }
-
-        await supabase.from('stock_movements').insert({
-          product_id: item.produto_id,
-          quantity: Number(item.quantity), 
-          type: 'IN',
-          receipt_id: novoRecebimento.id 
-        });
-      }
-      // --- FIM DA LÓGICA DE ESTOQUE ---
-
-      // 4. Recarregar dados
-      carregarDados();
-      
-      // 5. Limpar formulário
       setFormData({ notes: '' });
       setItems([]);
+      persistDraftId(null);
+      resetItemForm();
       setIsModalOpen(false);
-      setEditingItemIndex(null);
-      
       toast.success('Recebimento salvo e estoque atualizado!');
-      
+
     } catch (error: any) {
       console.error('Erro ao salvar:', error);
       toast.error('Erro ao salvar recebimento: ' + error.message);
@@ -459,7 +707,14 @@ export default function RecebimentosPage() {
             Relatório do Dia
           </button>
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => {
+              resetItemForm();
+              setItems([]);
+              setFormData({ notes: '' });
+              setDraftReceiptId(null);
+              persistDraftId(null);
+              setIsModalOpen(true);
+            }}
             className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2.5 rounded-lg transition-colors text-sm font-medium"
           >
             <Plus className="h-4 w-4" />
@@ -572,15 +827,7 @@ export default function RecebimentosPage() {
             <div className="flex items-center justify-between p-4 border-b border-slate-200 sticky top-0 bg-white rounded-t-xl z-10">
               <h3 className="text-lg font-semibold text-slate-800">Novo Recebimento</h3>
               <button
-                onClick={() => {
-                  setIsModalOpen(false);
-                  setEditingItemIndex(null);
-                  setSearchTerm('');
-                  setCurrentItem({
-                    produto_id: 0, quantity: 0, unit: 'kg',
-                    expires_at: '', priority: 'normal', lot_code: ''
-                  });
-                }}
+                onClick={fecharModalRecebimento}
                 className="text-slate-400 hover:text-slate-600 p-1"
               >
                 <X className="h-5 w-5" />
@@ -754,9 +1001,7 @@ export default function RecebimentosPage() {
                         >
                           <option value="kg">kg</option>
                           <option value="litros">litros</option>
-                          <option value="un">unidades</option>
-                          <option value="pacotes">pacotes</option>
-                          <option value="caixas">caixas</option>
+                          <option value="un">unidade</option>
                         </select>
                       </div>
                     </div>
@@ -784,13 +1029,13 @@ export default function RecebimentosPage() {
                     </div>
                     <button
                       onClick={adicionarItem}
-                      disabled={currentItem.produto_id === 0}
-                      className="w-full flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2.5 rounded-lg transition-colors text-sm font-medium disabled:bg-gray-300"
+                      disabled={currentItem.produto_id === 0 || isPersistingItem}
+                      className="w-full flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2.5 rounded-lg transition-colors text-sm font-medium disabled:bg-gray-300 disabled:cursor-not-allowed"
                     >
                       {editingItemIndex !== null ? (
-                        <><Save className="h-4 w-4" /> Salvar Alterações</>
+                        <><Save className="h-4 w-4" /> {isPersistingItem ? 'Salvando...' : 'Salvar Alterações'}</>
                       ) : (
-                        <><Plus className="h-4 w-4" /> Adicionar Item à Lista</>
+                        <><Plus className="h-4 w-4" /> {isPersistingItem ? 'Salvando...' : 'Adicionar Item à Lista'}</>
                       )}
                     </button>
                   </div>
@@ -866,7 +1111,7 @@ export default function RecebimentosPage() {
             {/* Rodapé do Modal */}
             <div className="flex flex-col sm:flex-row gap-3 justify-end p-4 border-t border-slate-200 sticky bottom-0 bg-white rounded-b-xl z-10">
               <button
-                onClick={() => setIsModalOpen(false)}
+                onClick={fecharModalRecebimento}
                 className="w-full sm:w-auto px-4 py-2.5 text-slate-600 hover:text-slate-800 transition-colors text-sm font-medium border border-slate-300 rounded-lg hover:bg-slate-50"
               >
                 Cancelar
