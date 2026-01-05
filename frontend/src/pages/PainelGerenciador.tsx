@@ -1,7 +1,7 @@
 // frontend/src/pages/PainelGerenciador.tsx
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { Users, TrendingUp, TrendingDown, Download } from 'lucide-react';
+import { Users, TrendingUp, TrendingDown, Download, FileText } from 'lucide-react';
 import toast from 'react-hot-toast'; 
 import * as XLSX from 'xlsx'; 
 
@@ -23,6 +23,8 @@ interface Celula {
 interface Historico {
   celula_id: number;
   data_chegada: string;
+  quantidade: number | null;
+  quantidade_itens: number | null;
 }
 
 // Interface para dados de estoque
@@ -180,8 +182,13 @@ export default function PainelGerenciador() {
     async function carregarDadosMacro() {
       try {
         setLoading(true);
-        const inicio = new Date(`${dataIni}T00:00:00Z`).toISOString();
-        const fim = new Date(`${dataFim}T23:59:59Z`).toISOString();
+        const parseISODate = (value: string, endOfDay = false) => {
+          if (!value) return null;
+          const parsed = new Date(`${value}T${endOfDay ? '23:59:59' : '00:00:00'}Z`);
+          return isNaN(parsed.getTime()) ? null : parsed.toISOString();
+        };
+        const inicio = parseISODate(dataIni);
+        const fim = parseISODate(dataFim, true);
         // Pega todas as células ativas (para a base geral)
         const { data: celulasData, error: celulasError } = await supabase
           .from('celulas')
@@ -191,11 +198,16 @@ export default function PainelGerenciador() {
         setCelulas(celulasData as Celula[] || []);
 
         // Pega todo o histórico (para ver quem entregou)
-        const { data: historicoData, error: historicoError } = await supabase
+        let historicoQuery = supabase
           .from('historico_kg')
-          .select('celula_id, data_chegada')
-          .gte('data_chegada', inicio)
-          .lte('data_chegada', fim);
+          .select('celula_id, data_chegada, quantidade, quantidade_itens');
+        if (inicio) {
+          historicoQuery = historicoQuery.gte('data_chegada', inicio);
+        }
+        if (fim) {
+          historicoQuery = historicoQuery.lte('data_chegada', fim);
+        }
+        const { data: historicoData, error: historicoError } = await historicoQuery;
         if (historicoError) throw historicoError;
         setHistorico(historicoData || []);
 
@@ -227,14 +239,20 @@ export default function PainelGerenciador() {
 
   // Lógica de atividade
   const celulasAtivasIds = useMemo(() => {
-    if (!dataIni || !dataFim) return new Set<number>();
+    const ids = new Set<number>();
+    const inicioValido = dataIni ? !isNaN(new Date(dataIni).getTime()) : false;
+    const fimValido = dataFim ? !isNaN(new Date(dataFim).getTime()) : false;
+
+    if (!inicioValido || !fimValido) {
+      historico.forEach(h => ids.add(h.celula_id));
+      return ids;
+    }
 
     const inicioDoPeriodo = new Date(dataIni);
     inicioDoPeriodo.setUTCHours(0, 0, 0, 0);
     const fimDoPeriodo = new Date(dataFim);
     fimDoPeriodo.setUTCHours(23, 59, 59, 999);
 
-    const ids = new Set<number>();
     historico.forEach(h => {
       const dataEntrega = new Date(h.data_chegada);
       if (dataEntrega >= inicioDoPeriodo && dataEntrega <= fimDoPeriodo) {
@@ -347,6 +365,218 @@ export default function PainelGerenciador() {
     }
   };
 
+  const handleGerarRelatorioEstrategico = () => {
+    try {
+      const periodLabel = (valor: string) => {
+        if (!valor) return null;
+        const data = new Date(valor);
+        if (isNaN(data.getTime())) return null;
+        return data.toLocaleDateString('pt-BR');
+      };
+      const inicioLabel = periodLabel(dataIni);
+      const fimLabel = periodLabel(dataFim);
+      const periodoTexto = inicioLabel && fimLabel
+        ? `${inicioLabel} a ${fimLabel}`
+        : 'Geral (todos os registros disponíveis)';
+
+      const celulaMap = new Map(celulas.map(c => [c.id, c]));
+      type ResumoEntrega = { kg: number; itens: number; entregas: number; ultimaEntrega: string | null };
+      const entregasPorCelula = new Map<number, ResumoEntrega>();
+
+      historico.forEach(h => {
+        const atual = entregasPorCelula.get(h.celula_id) || { kg: 0, itens: 0, entregas: 0, ultimaEntrega: null };
+        atual.kg += Number(h.quantidade) || 0;
+        atual.itens += Number(h.quantidade_itens) || 0;
+        atual.entregas += 1;
+        if (!atual.ultimaEntrega || new Date(h.data_chegada) > new Date(atual.ultimaEntrega)) {
+          atual.ultimaEntrega = h.data_chegada;
+        }
+        entregasPorCelula.set(h.celula_id, atual);
+      });
+
+      const totalKgPeriodo = Array.from(entregasPorCelula.values()).reduce((sum, info) => sum + info.kg, 0);
+      const totalItensPeriodo = Array.from(entregasPorCelula.values()).reduce((sum, info) => sum + info.itens, 0);
+      const totalEntregasPeriodo = Array.from(entregasPorCelula.values()).reduce((sum, info) => sum + info.entregas, 0);
+      const formatNumeric = (value: number) => Number(value.toFixed(2));
+
+      const criarResumoDimensao = (
+        keyGetter: (celula: Celula) => { chave: string; extra?: Record<string, any> } | null,
+        colunaNome: string
+      ) => {
+        const mapa = new Map<string, any>();
+        const ensureEntry = (celula: Celula) => {
+          const dimensao = keyGetter(celula);
+          if (!dimensao) return null;
+          const chave = (dimensao.chave || 'N/D').toUpperCase();
+          if (!mapa.has(chave)) {
+            mapa.set(chave, {
+              [colunaNome]: chave,
+              ...(dimensao.extra || {}),
+              'Total de Células': 0,
+              'Células Entregaram': 0,
+              'Células Não Entregaram': 0,
+              'KG no Período': 0,
+              'Itens no Período': 0,
+              'Qtde de Entregas': 0,
+            });
+          }
+          return mapa.get(chave);
+        };
+
+        celulas.forEach(c => {
+          const entry = ensureEntry(c);
+          if (!entry) return;
+          entry['Total de Células'] += 1;
+          if (celulasAtivasIds.has(c.id)) {
+            entry['Células Entregaram'] += 1;
+          } else {
+            entry['Células Não Entregaram'] += 1;
+          }
+        });
+
+        entregasPorCelula.forEach((info, celulaId) => {
+          const celula = celulaMap.get(celulaId);
+          if (!celula) return;
+          const entry = ensureEntry(celula);
+          if (!entry) return;
+          entry['KG no Período'] += info.kg;
+          entry['Itens no Período'] += info.itens;
+          entry['Qtde de Entregas'] += info.entregas;
+        });
+
+        return Array.from(mapa.values()).map(registro => ({
+          ...registro,
+          '% de Entrega': registro['Total de Células'] > 0
+            ? Number(((registro['Células Entregaram'] / registro['Total de Células']) * 100).toFixed(2))
+            : 0,
+          'Média KG por Célula Ativa': registro['Células Entregaram'] > 0
+            ? Number((registro['KG no Período'] / registro['Células Entregaram']).toFixed(2))
+            : 0
+        })).sort((a, b) => b['KG no Período'] - a['KG no Período']);
+      };
+
+      const redesSheet = criarResumoDimensao(
+        (celula) => ({ chave: celula.redes?.cor || 'Sem Rede', extra: { 'Hex da Rede': celula.redes?.hex || '#6B7280' } }),
+        'Rede'
+      ).map(registro => ({
+        ...registro,
+        'Participação no KG (%)': totalKgPeriodo > 0 ? Number(((registro['KG no Período'] / totalKgPeriodo) * 100).toFixed(2)) : 0
+      }));
+
+      const supervisaoSheet = criarResumoDimensao(
+        (celula) => ({ chave: celula.supervisores || 'Sem Supervisão' }),
+        'Supervisão'
+      );
+
+      const lideresSheet = criarResumoDimensao(
+        (celula) => ({ chave: celula.lider || 'Sem Líder' }),
+        'Líder'
+      );
+
+      const detalhamentoCelulas = celulas.map(c => {
+        const entrega = entregasPorCelula.get(c.id);
+        const ultimaEntrega = entrega?.ultimaEntrega ? new Date(entrega.ultimaEntrega).toLocaleDateString('pt-BR') : 'Sem registro';
+        return {
+          'Célula': c.nome,
+          'Rede': c.redes?.cor || 'Sem Rede',
+          'Supervisão': c.supervisores,
+          'Líderes': c.lider,
+          'Status no Período': celulasAtivasIds.has(c.id) ? 'Entregou' : 'Não Entregou',
+          'Qtde de Entregas no Período': entrega?.entregas || 0,
+          'KG Registrados no Período': formatNumeric(entrega?.kg || 0),
+          'Itens Registrados no Período': entrega?.itens || 0,
+          'Saldo Atual KG': formatNumeric(Number(c.quantidade_kg) || 0),
+          'Saldo Atual Itens': Number(c.quantidade_itens) || 0,
+          'Última entrega no período': ultimaEntrega
+        };
+      }).sort((a, b) => b['KG Registrados no Período'] - a['KG Registrados no Período']);
+
+      const listaNaoEntregues = detalhamentoCelulas
+        .filter(item => item['Status no Período'] === 'Não Entregou')
+        .map(item => ({
+          ...item,
+          'Motivo / Observações': 'Sem entrega registrada no período'
+        }));
+
+      const produtosEntradaSheet = rankings.rankingEntradas.map(([produto, total]) => {
+        const unidade = produto.includes('(') ? produto.split('(')[1].replace(')', '') : 'un';
+        const nome = produto.includes('(') ? produto.split('(')[0].trim() : produto;
+        return {
+          Produto: nome,
+          Unidade: unidade,
+          Quantidade: Number(total.toFixed(2))
+        };
+      });
+
+      const produtosSaidaSheet = rankings.rankingSaidas.map(([produto, total]) => {
+        const unidade = produto.includes('(') ? produto.split('(')[1].replace(')', '') : 'un';
+        const nome = produto.includes('(') ? produto.split('(')[0].trim() : produto;
+        return {
+          Produto: nome,
+          Unidade: unidade,
+          Quantidade: Number(total.toFixed(2))
+        };
+      });
+
+      const insights: string[] = [];
+      const taxaEntrega = stats.totalCelulas > 0 ? (stats.celulasAtivas / stats.totalCelulas) * 100 : 0;
+      insights.push(`Taxa geral de entrega: ${taxaEntrega.toFixed(1)}% (${stats.celulasAtivas} de ${stats.totalCelulas} células entregaram).`);
+      if (redesSheet.length > 0) {
+        const melhorRede = redesSheet[0];
+        const piorRede = redesSheet[redesSheet.length - 1];
+        insights.push(`Maior volume no período: rede ${melhorRede.Rede} com ${melhorRede['KG no Período'].toFixed(1)} kg (${melhorRede['Participação no KG (%)']}% do total).`);
+        insights.push(`Menor participação: rede ${piorRede.Rede} com taxa de entrega de ${piorRede['% de Entrega']}%.`);
+      }
+      if (supervisaoSheet.length > 0) {
+        const topSuper = supervisaoSheet[0];
+        insights.push(`Supervisão em destaque: ${topSuper.Supervisão} com ${topSuper['KG no Período'].toFixed(1)} kg registrados.`);
+      }
+      if (listaNaoEntregues.length > 0) {
+        insights.push(`Existem ${listaNaoEntregues.length} células sem entregas; priorize contato com ${listaNaoEntregues.slice(0, 5).map(c => c['Célula']).join(', ')}.`);
+      }
+      if (produtosEntradaSheet.length > 0) {
+        const principaisProdutos = produtosEntradaSheet.slice(0, 3).map(p => `${p.Produto} (${p.Quantidade} ${p.Unidade})`).join(', ');
+        insights.push(`Principais produtos recebidos no período: ${principaisProdutos}.`);
+      }
+
+      const resumoGeralSheet = [{
+        'Período Analisado': periodoTexto,
+        'Total de Células': stats.totalCelulas,
+        'Células que Entregaram': stats.celulasAtivas,
+        'Células que Não Entregaram': stats.celulasInativas,
+        'Taxa de Entrega (%)': Number(taxaEntrega.toFixed(2)),
+        'Total de KG Registrado': formatNumeric(totalKgPeriodo),
+        'Total de Itens Registrados': Number(totalItensPeriodo.toFixed(0)),
+        'Qtd. de Entregas no Período': totalEntregasPeriodo,
+        'Média KG por Entrega': formatNumeric(totalEntregasPeriodo > 0 ? totalKgPeriodo / totalEntregasPeriodo : 0),
+        'Média KG por Célula Ativa': formatNumeric(stats.celulasAtivas > 0 ? totalKgPeriodo / stats.celulasAtivas : 0)
+      }];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(resumoGeralSheet), '01_Resumo');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(redesSheet), '02_Redes');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(supervisaoSheet), '03_Supervisões');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(lideresSheet), '04_Líderes');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(detalhamentoCelulas), '05_Células');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(listaNaoEntregues), '06_Não Entregues');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(produtosEntradaSheet), '07_Produtos Entrada');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(produtosSaidaSheet), '08_Produtos Saída');
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.json_to_sheet(insights.map((texto, index) => ({ '#': index + 1, Insight: texto }))),
+        '09_Insights'
+      );
+
+      const periodoArquivo = inicioLabel && fimLabel ? `${dataIni}_${dataFim}` : 'geral';
+      const nomeArquivo = `Relatorio_Estrategico_KG_${periodoArquivo}.xlsx`;
+      XLSX.writeFile(workbook, nomeArquivo);
+      toast.success('Relatório estratégico gerado com sucesso!');
+    } catch (error) {
+      console.error('Erro ao gerar relatório estratégico:', error);
+      toast.error('Não foi possível gerar o relatório estratégico.');
+    }
+  };
+
   const handleRedeClick = (redeNome: string) => {
     const nome = redeNome || 'Sem Rede';
     const lista = celulas.filter(c => (c.redes?.cor || 'Sem Rede') === nome && !celulasAtivasIds.has(c.id));
@@ -392,6 +622,14 @@ export default function PainelGerenciador() {
             value={dataFim}
             onChange={(e) => setDataFim(e.target.value)}
           />
+          <button
+            onClick={handleGerarRelatorioEstrategico}
+            className="rounded-lg bg-indigo-600 text-white px-3 py-2 text-sm hover:bg-indigo-700 flex items-center gap-2"
+            title="Relatório completo por Rede, Supervisão e Líderes"
+          >
+            <FileText size={16} />
+            Relatório Estratégico
+          </button>
           <button
             onClick={handleExportExcel}
             className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"

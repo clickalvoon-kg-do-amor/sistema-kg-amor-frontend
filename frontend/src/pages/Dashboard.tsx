@@ -71,6 +71,7 @@ function RankingBox({ title, data }: RankingBoxProps) {
 export default function Dashboard() {
   const [todoHistorico, setTodoHistorico] = useState<HistoricoComCelula[]>([]);
   const [loading, setLoading] = useState(true);
+  const [redesDisponiveis, setRedesDisponiveis] = useState<string[]>([]);
 
   // Filtros (datas começam vazias)
   const [filtros, setFiltros] = useState<Filtros>({
@@ -82,10 +83,10 @@ export default function Dashboard() {
 
   // Opções dos selects (derivadas do histórico)
   const opcoesRede = useMemo(() => {
-    const set = new Set<string>();
+    const set = new Set<string>(redesDisponiveis.map((r) => r.toUpperCase()));
     todoHistorico.forEach((r) => set.add((r.celulas?.redes?.cor || 'Sem rede').toUpperCase()));
     return ['Todas', ...Array.from(set).sort()];
-  }, [todoHistorico]);
+  }, [todoHistorico, redesDisponiveis]);
 
   const opcoesSupervisao = useMemo(() => {
     const set = new Set<string>();
@@ -97,7 +98,8 @@ export default function Dashboard() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const { data, error } = await supabase
+      const [{ data, error }, { data: redesData }] = await Promise.all([
+        supabase
         .from('historico_kg') // <--- LENDO DA TABELA CORRETA
         .select(`
           quantidade,
@@ -111,7 +113,9 @@ export default function Dashboard() {
             supervisores,
             redes (cor)
           )
-        `);
+        `),
+        supabase.from('redes').select('cor').eq('ativo', true)
+      ]);
 
       if (error) {
         console.error('Erro ao buscar histórico:', error);
@@ -123,6 +127,10 @@ export default function Dashboard() {
         }));
         setTodoHistorico(normalizados as HistoricoComCelula[]);
       }
+      const listaRedes = (redesData || [])
+        .map((r: { cor: string | null }) => (r.cor || '').toUpperCase())
+        .filter(Boolean);
+      setRedesDisponiveis(listaRedes);
       setLoading(false);
     })();
   }, []);
