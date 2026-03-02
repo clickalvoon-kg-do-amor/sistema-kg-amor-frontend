@@ -7,6 +7,7 @@ import {
 import { supabase } from '../lib/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast'; 
 import * as XLSX from 'xlsx'; // Importa a biblioteca de Excel
+import { formatLocalDate, isSameLocalDate } from '../utils/date';
 
 const DRAFT_STORAGE_KEY = 'kg_recebimentos_draft_id';
 
@@ -85,6 +86,7 @@ export default function RecebimentosPage() {
   });
   const [draftReceiptId, setDraftReceiptId] = useState<number | null>(null);
   const [isPersistingItem, setIsPersistingItem] = useState(false);
+  const [isSavingReceipt, setIsSavingReceipt] = useState(false);
 
   // Estados para UI
   const [searchTerm, setSearchTerm] = useState('');
@@ -224,42 +226,59 @@ export default function RecebimentosPage() {
   };
 
   const atualizarEstoqueComItens = async (receiptId: number, itensParaProcessar: ReceiptItemForm[]) => {
-    for (const item of itensParaProcessar) {
+    if (itensParaProcessar.length === 0) return;
+
+    const somasPorProduto = new Map<number, number>();
+    const movimentos = itensParaProcessar.map(item => {
       const quantidadeNumber = Number(item.quantity) || 0;
-      const { data: estoqueAtual, error: getError } = await supabase
-        .from('estoque')
-        .select('quantidade_atual')
-        .eq('produto_id', item.produto_id)
-        .single();
-
-      if (getError && getError.code !== 'PGRST116') {
-        throw new Error(`Falha ao buscar estoque: ${getError.message}`);
-      }
-
-      const saldoAnterior = estoqueAtual?.quantidade_atual || 0;
-      const novoSaldo = saldoAnterior + quantidadeNumber;
-
-      const { error: upsertError } = await supabase
-        .from('estoque')
-        .upsert({
-          produto_id: item.produto_id,
-          quantidade_atual: novoSaldo,
-          localizacao: 'Estoque Principal',
-          atualizado_em: new Date().toISOString()
-        }, {
-          onConflict: 'produto_id'
-        });
-
-      if (upsertError) {
-        throw new Error(`Falha ao atualizar estoque: ${upsertError.message}`);
-      }
-
-      await supabase.from('stock_movements').insert({
+      somasPorProduto.set(
+        item.produto_id,
+        (somasPorProduto.get(item.produto_id) || 0) + quantidadeNumber
+      );
+      return {
         product_id: item.produto_id,
         quantity: quantidadeNumber,
         type: 'IN',
         receipt_id: receiptId
-      });
+      };
+    });
+
+    const ids = Array.from(somasPorProduto.keys());
+    const { data: estoqueAtual, error: getError } = await supabase
+      .from('estoque')
+      .select('produto_id, quantidade_atual')
+      .in('produto_id', ids);
+
+    if (getError) {
+      throw new Error(`Falha ao buscar estoque: ${getError.message}`);
+    }
+
+    const estoqueMap = new Map<number, number>();
+    (estoqueAtual || []).forEach(item => {
+      estoqueMap.set(item.produto_id, item.quantidade_atual || 0);
+    });
+
+    const upsertPayload = ids.map(produtoId => ({
+      produto_id: produtoId,
+      quantidade_atual: (estoqueMap.get(produtoId) || 0) + (somasPorProduto.get(produtoId) || 0),
+      localizacao: 'Estoque Principal',
+      atualizado_em: new Date().toISOString()
+    }));
+
+    const { error: upsertError } = await supabase
+      .from('estoque')
+      .upsert(upsertPayload, { onConflict: 'produto_id' });
+
+    if (upsertError) {
+      throw new Error(`Falha ao atualizar estoque: ${upsertError.message}`);
+    }
+
+    const { error: movementError } = await supabase
+      .from('stock_movements')
+      .insert(movimentos);
+
+    if (movementError) {
+      throw new Error(`Falha ao registrar movimentações: ${movementError.message}`);
     }
   };
 
@@ -397,8 +416,7 @@ export default function RecebimentosPage() {
 
       if (!receiptId) throw new Error('Não foi possível iniciar o rascunho do recebimento.');
 
-      const payload = {
-        receipt_id: receiptId,
+      const baseItemPayload = {
         product_id: currentItem.produto_id,
         quantity: quantidadeNum,
         unit: currentItem.unit,
@@ -413,7 +431,7 @@ export default function RecebimentosPage() {
         if (itemEdicao?.id) {
           const { data: atualizado, error: updateError } = await supabase
             .from('receipt_items')
-            .update(payload)
+            .update(baseItemPayload)
             .eq('id', itemEdicao.id)
             .select(`
               id,
@@ -470,7 +488,10 @@ export default function RecebimentosPage() {
       } else {
         const { data: itemCriado, error: inserirError } = await supabase
           .from('receipt_items')
-          .insert(payload)
+          .insert({
+            ...baseItemPayload,
+            receipt_id: receiptId
+          })
           .select(`
             id,
             product_id,
@@ -547,10 +568,8 @@ export default function RecebimentosPage() {
 
   // --- FUNÇÃO DE GERAR RELATÓRIO CORRIGIDA ---
   const gerarRelatorio = () => {
-    const hoje = new Date().toISOString().split('T')[0];
-    const recebimentosHoje = recebimentos.filter(r => 
-      r.created_at.startsWith(hoje)
-    );
+    const hoje = formatLocalDate();
+    const recebimentosHoje = recebimentos.filter((r) => isSameLocalDate(r.created_at));
 
     if (recebimentosHoje.length === 0) {
       toast.error('Nenhum recebimento encontrado para hoje');
@@ -585,18 +604,25 @@ export default function RecebimentosPage() {
       toast.error('Adicione pelo menos um item');
       return;
     }
+    if (isSavingReceipt) return;
 
+    setIsSavingReceipt(true);
     try {
       if (draftReceiptId) {
-        const { error: updateError } = await supabase
+        const { data: updatedRows, error: updateError } = await supabase
           .from('receipts')
           .update({
             notes: formData.notes || null,
             status: 'posted'
           })
-          .eq('id', draftReceiptId);
+          .eq('id', draftReceiptId)
+          .eq('status', 'draft')
+          .select('id');
 
         if (updateError) throw updateError;
+        if (!updatedRows || updatedRows.length === 0) {
+          throw new Error('Este recebimento ja foi finalizado em outro dispositivo.');
+        }
 
         await atualizarEstoqueComItens(draftReceiptId, items);
         await carregarDados();
@@ -652,6 +678,8 @@ export default function RecebimentosPage() {
     } catch (error: any) {
       console.error('Erro ao salvar:', error);
       toast.error('Erro ao salvar recebimento: ' + error.message);
+    } finally {
+      setIsSavingReceipt(false);
     }
   };
   
@@ -686,7 +714,7 @@ export default function RecebimentosPage() {
   }
   
   const totalItensRecebidos = recebimentos.reduce((total, r) => total + r.receipt_items.length, 0);
-  const recebimentosHoje = recebimentos.filter(r => r.created_at.startsWith(new Date().toISOString().split('T')[0])).length;
+  const recebimentosHoje = recebimentos.filter((r) => isSameLocalDate(r.created_at)).length;
 
   return (
     <div className="space-y-4 lg:space-y-6 p-4 lg:p-0">
@@ -1029,7 +1057,7 @@ export default function RecebimentosPage() {
                     </div>
                     <button
                       onClick={adicionarItem}
-                      disabled={currentItem.produto_id === 0 || isPersistingItem}
+                      disabled={currentItem.produto_id === 0 || isPersistingItem || isSavingReceipt}
                       className="w-full flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2.5 rounded-lg transition-colors text-sm font-medium disabled:bg-gray-300 disabled:cursor-not-allowed"
                     >
                       {editingItemIndex !== null ? (
@@ -1064,6 +1092,37 @@ export default function RecebimentosPage() {
                   <h4 className="font-medium text-slate-800 text-sm lg:text-base">
                     Itens do Recebimento ({items.length})
                   </h4>
+                  <div className="block lg:hidden space-y-2">
+                    {items.map((item, index) => (
+                      <div key={index} className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1">
+                            <div className="font-medium text-slate-800 text-sm">{item.produto_nome}</div>
+                            {item.expires_at && (
+                              <div className="text-xs text-slate-500">Validade: {item.expires_at}</div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 ml-2">
+                            <button onClick={() => editarItem(index)} className="text-blue-500 hover:text-blue-700 p-1">
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button onClick={() => removerItem(index)} className="text-red-500 hover:text-red-700 p-1">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                          <div>Quantidade: <span className="font-medium">{item.quantity} {item.unit}</span></div>
+                          <div>
+                            Prioridade:
+                            <span className={`ml-1 px-1.5 py-0.5 rounded-full text-xs font-medium ${
+                              item.priority === 'imediato' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                            }`}>{item.priority}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                   <div className="hidden lg:block border border-slate-200 rounded-lg overflow-hidden">
                     <div className="bg-slate-50 px-4 py-3 grid grid-cols-5 gap-4 text-sm font-medium text-slate-700">
                       <div className="col-span-2">Produto</div>
@@ -1112,17 +1171,18 @@ export default function RecebimentosPage() {
             <div className="flex flex-col sm:flex-row gap-3 justify-end p-4 border-t border-slate-200 sticky bottom-0 bg-white rounded-b-xl z-10">
               <button
                 onClick={fecharModalRecebimento}
+                disabled={isSavingReceipt}
                 className="w-full sm:w-auto px-4 py-2.5 text-slate-600 hover:text-slate-800 transition-colors text-sm font-medium border border-slate-300 rounded-lg hover:bg-slate-50"
               >
                 Cancelar
               </button>
               <button
                 onClick={salvarRecebimento}
-                disabled={items.length === 0}
+                disabled={items.length === 0 || isSavingReceipt}
                 className="w-full sm:w-auto flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-lg transition-colors text-sm font-medium"
               >
                 <Save className="h-4 w-4" />
-                Salvar Recebimento
+                {isSavingReceipt ? 'Salvando...' : 'Salvar Recebimento'}
               </button>
             </div>
           </div>

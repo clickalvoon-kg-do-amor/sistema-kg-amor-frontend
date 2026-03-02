@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Edit2, Save, X, Users, UserCheck, Palette, Weight, Trash2, Calendar, EyeOff, Box, Search, Filter } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { formatLocalDate, toUtcISOStringFromLocalDate } from '../utils/date';
 
 // --- COMPONENTE DE TOAST ---
 function Toast({ message, onClose, isError = false }: { message: string, onClose: () => void, isError?: boolean }) {
@@ -73,7 +74,7 @@ export default function CelulasPage() {
   
   const [recebimentoKG, setRecebimentoKG] = useState<string>('0');
   const [recebimentoItens, setRecebimentoItens] = useState<string>('1');
-  const [dataChegada, setDataChegada] = useState(new Date().toISOString().split('T')[0]);
+  const [dataChegada, setDataChegada] = useState(formatLocalDate());
   const [observacao, setObservacao] = useState('');
 
   const [toastMessage, setToastMessage] = useState('');
@@ -307,7 +308,7 @@ export default function CelulasPage() {
           celula_id: selectedCelulaRecebimento.id,
           quantidade: kgRecebido,
           quantidade_itens: itensRecebidos, 
-          data_chegada: new Date(dataChegada).toISOString(),
+          data_chegada: toUtcISOStringFromLocalDate(dataChegada) || new Date().toISOString(),
           observacoes: observacao || null 
         }]);
 
@@ -338,7 +339,7 @@ export default function CelulasPage() {
     setSelectedCelulaRecebimento(null);
     setRecebimentoKG('0');
     setRecebimentoItens('1'); 
-    setDataChegada(new Date().toISOString().split('T')[0]);
+    setDataChegada(formatLocalDate());
     setObservacao(''); 
   };
 
@@ -371,7 +372,7 @@ export default function CelulasPage() {
         <div className="flex gap-3 w-full sm:w-auto">
           <button
             onClick={() => {
-              setDataChegada(new Date().toISOString().split('T')[0]);
+              setDataChegada(formatLocalDate());
               setIsRecebimentoModalOpen(true);
             }}
             className="flex-1 sm:flex-none bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors"

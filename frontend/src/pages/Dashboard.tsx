@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import * as XLSX from 'xlsx'; // Importa a biblioteca de Excel
 import { Download } from 'lucide-react'; // Ícone para o botão
+import { formatLocalDate } from '../utils/date';
 
 // LÓGICA DE DADOS (LENDO DO NOVO 'historico_kg')
 type HistoricoComCelula = {
@@ -244,7 +245,7 @@ export default function Dashboard() {
     XLSX.utils.book_append_sheet(wb, wsCelulas, "Top Células");
     XLSX.utils.book_append_sheet(wb, wsRedes, "Ranking Redes");
 
-    const dataHoje = new Date().toISOString().split('T')[0];
+    const dataHoje = formatLocalDate();
     const nomeArquivo = `Relatorio_KG_do_Amor_${dataHoje}.xlsx`;
     XLSX.writeFile(wb, nomeArquivo);
   };

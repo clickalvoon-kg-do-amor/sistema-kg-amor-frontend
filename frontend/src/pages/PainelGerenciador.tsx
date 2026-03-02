@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 import { Users, TrendingUp, TrendingDown, Download, FileText } from 'lucide-react';
 import toast from 'react-hot-toast'; 
 import * as XLSX from 'xlsx'; 
+import { formatLocalDate, toUtcISOStringFromLocalDate } from '../utils/date';
 
 // --- Interfaces Atualizadas ---
 interface Celula {
@@ -173,8 +174,14 @@ export default function PainelGerenciador() {
   const [celulasNaoEntregues, setCelulasNaoEntregues] = useState<Celula[]>([]);
 
   // Filtros de data
-  const [dataIni, setDataIni] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
-  const [dataFim, setDataFim] = useState(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0]);
+  const [dataIni, setDataIni] = useState(() => {
+    const now = new Date();
+    return formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1));
+  });
+  const [dataFim, setDataFim] = useState(() => {
+    const now = new Date();
+    return formatLocalDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  });
 
 
   // Carrega todos os dados
@@ -182,11 +189,8 @@ export default function PainelGerenciador() {
     async function carregarDadosMacro() {
       try {
         setLoading(true);
-        const parseISODate = (value: string, endOfDay = false) => {
-          if (!value) return null;
-          const parsed = new Date(`${value}T${endOfDay ? '23:59:59' : '00:00:00'}Z`);
-          return isNaN(parsed.getTime()) ? null : parsed.toISOString();
-        };
+        const parseISODate = (value: string, endOfDay = false) =>
+          toUtcISOStringFromLocalDate(value, endOfDay);
         const inicio = parseISODate(dataIni);
         const fim = parseISODate(dataFim, true);
         // Pega todas as células ativas (para a base geral)
@@ -240,22 +244,23 @@ export default function PainelGerenciador() {
   // Lógica de atividade
   const celulasAtivasIds = useMemo(() => {
     const ids = new Set<number>();
-    const inicioValido = dataIni ? !isNaN(new Date(dataIni).getTime()) : false;
-    const fimValido = dataFim ? !isNaN(new Date(dataFim).getTime()) : false;
+    const inicioDoPeriodo = dataIni ? new Date(`${dataIni}T00:00:00`) : null;
+    const fimDoPeriodo = dataFim ? new Date(`${dataFim}T23:59:59.999`) : null;
 
-    if (!inicioValido || !fimValido) {
-      historico.forEach(h => ids.add(h.celula_id));
+    const periodoInvalido =
+      (inicioDoPeriodo && isNaN(inicioDoPeriodo.getTime())) ||
+      (fimDoPeriodo && isNaN(fimDoPeriodo.getTime()));
+    if (periodoInvalido) {
+      historico.forEach((h) => ids.add(h.celula_id));
       return ids;
     }
 
-    const inicioDoPeriodo = new Date(dataIni);
-    inicioDoPeriodo.setUTCHours(0, 0, 0, 0);
-    const fimDoPeriodo = new Date(dataFim);
-    fimDoPeriodo.setUTCHours(23, 59, 59, 999);
-
     historico.forEach(h => {
       const dataEntrega = new Date(h.data_chegada);
-      if (dataEntrega >= inicioDoPeriodo && dataEntrega <= fimDoPeriodo) {
+      if (isNaN(dataEntrega.getTime())) return;
+      const passouInicio = !inicioDoPeriodo || dataEntrega >= inicioDoPeriodo;
+      const passouFim = !fimDoPeriodo || dataEntrega <= fimDoPeriodo;
+      if (passouInicio && passouFim) {
         ids.add(h.celula_id);
       }
     });
@@ -354,7 +359,7 @@ export default function PainelGerenciador() {
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Base Geral Células");
 
-      const dataHoje = new Date().toISOString().split('T')[0];
+      const dataHoje = formatLocalDate();
       const nomeArquivo = `Relatorio_Geral_Celulas_${dataHoje}.xlsx`;
       XLSX.writeFile(wb, nomeArquivo);
       toast.success('Relatório exportado!');
@@ -369,7 +374,7 @@ export default function PainelGerenciador() {
     try {
       const periodLabel = (valor: string) => {
         if (!valor) return null;
-        const data = new Date(valor);
+        const data = new Date(`${valor}T00:00:00`);
         if (isNaN(data.getTime())) return null;
         return data.toLocaleDateString('pt-BR');
       };

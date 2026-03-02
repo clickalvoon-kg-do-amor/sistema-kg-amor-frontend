@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
+import { isSameLocalDate } from '../utils/date';
 
 // --- Interfaces ---
 interface Categoria {
@@ -352,7 +353,7 @@ export default function RetiradasPage() {
     );
   }
   
-  const retiradasHoje = retiradas.filter(r => r.created_at.startsWith(new Date().toISOString().split('T')[0])).length;
+  const retiradasHoje = retiradas.filter((r) => isSameLocalDate(r.created_at)).length;
 
   return (
     <div className="space-y-4 lg:space-y-6 p-4 lg:p-0">
