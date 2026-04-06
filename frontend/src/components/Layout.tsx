@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Outlet } from "react-router-dom";
 import Navbar from "./Navbar";
 import Sidebar from "./Sidebar";
@@ -8,12 +9,39 @@ type Props = {
 };
 
 export default function Layout({ user, onLogout }: Props) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (!sidebarOpen) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSidebarOpen(false);
+      }
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [sidebarOpen]);
+
   return (
-    <div className="min-h-screen bg-slate-50">
-      <Navbar user={user} onLogout={onLogout} />
-      <div className="mx-auto grid max-w-7xl grid-cols-1 gap-0 md:grid-cols-[16rem_1fr]">
-        <Sidebar />
-        <main className="min-h-[calc(100vh-3.5rem)] p-4">
+    <div className="app-shell">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[280px] bg-[radial-gradient(circle_at_top,rgba(14,165,233,0.15),transparent_58%)]" />
+      <Navbar
+        user={user}
+        onLogout={onLogout}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((open) => !open)}
+      />
+      <div className="mx-auto flex w-full max-w-[1600px] gap-4 px-3 pb-6 pt-4 sm:px-4 lg:gap-6 lg:px-6">
+        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <main className="min-w-0 flex-1">
           <Outlet />
         </main>
       </div>

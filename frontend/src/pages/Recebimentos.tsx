@@ -5,7 +5,7 @@ import {
   ShoppingCart, Download, Search, ChevronDown, ChevronUp, CheckCircle, Calendar
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
-import toast, { Toaster } from 'react-hot-toast'; 
+import toast from 'react-hot-toast'; 
 import * as XLSX from 'xlsx'; // Importa a biblioteca de Excel
 import { formatLocalDate, isSameLocalDate } from '../utils/date';
 
@@ -717,9 +717,7 @@ export default function RecebimentosPage() {
   const recebimentosHoje = recebimentos.filter((r) => isSameLocalDate(r.created_at)).length;
 
   return (
-    <div className="space-y-4 lg:space-y-6 p-4 lg:p-0">
-      <Toaster /> 
-      
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <h2 className="flex items-center gap-2 text-xl lg:text-2xl font-bold text-slate-800">
@@ -729,7 +727,7 @@ export default function RecebimentosPage() {
         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
           <button
             onClick={gerarRelatorio}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-lg transition-colors text-sm font-medium"
+            className="button-base button-success w-full sm:w-auto"
           >
             <Download className="h-4 w-4" />
             Relatório do Dia
@@ -743,7 +741,7 @@ export default function RecebimentosPage() {
               persistDraftId(null);
               setIsModalOpen(true);
             }}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2.5 rounded-lg transition-colors text-sm font-medium"
+            className="button-base button-primary w-full sm:w-auto"
           >
             <Plus className="h-4 w-4" />
             Novo Recebimento

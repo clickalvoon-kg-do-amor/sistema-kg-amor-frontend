@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Edit2, Save, X, Users, UserCheck, Palette, Weight, Trash2, Calendar, EyeOff, Box, Search, Filter } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { formatLocalDate, toUtcISOStringFromLocalDate } from '../utils/date';
+import { PageHeader, StatCard } from '../components/ui';
 
 // --- COMPONENTE DE TOAST ---
 function Toast({ message, onClose, isError = false }: { message: string, onClose: () => void, isError?: boolean }) {
@@ -157,8 +158,14 @@ export default function CelulasPage() {
     });
   }, [celulas, searchTerm, filterRede, filterSupervisor, ocultarZeradas]);
   
-  const totalKG = celulas.reduce((total, celula) => total + Number(celula.quantidade_kg || 0), 0);
-  const totalItens = celulas.reduce((total, celula) => total + Number(celula.quantidade_itens || 0), 0);
+  const totalKG = useMemo(
+    () => celulas.reduce((total, celula) => total + Number(celula.quantidade_kg || 0), 0),
+    [celulas]
+  );
+  const totalItens = useMemo(
+    () => celulas.reduce((total, celula) => total + Number(celula.quantidade_itens || 0), 0),
+    [celulas]
+  );
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -357,43 +364,40 @@ export default function CelulasPage() {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="space-y-6">
       {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage('')} isError={isToastError} />}
 
-      {/* --- BARRA DE TÍTULO E AÇÕES --- */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-            <Users className="text-blue-600" />
-            Células
-          </h1>
-          <p className="text-gray-600 mt-1">Gestão completa das células e seus recebimentos</p>
-        </div>
-        <div className="flex gap-3 w-full sm:w-auto">
-          <button
-            onClick={() => {
-              setDataChegada(formatLocalDate());
-              setIsRecebimentoModalOpen(true);
-            }}
-            className="flex-1 sm:flex-none bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors"
-          >
-            <Plus size={20} />
-            <span className="hidden sm:inline">Adicionar Recebimento</span>
-            <span className="sm:hidden">Recebimento</span>
-          </button>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors"
-          >
-            <Plus size={20} />
-            <span className="hidden sm:inline">Nova Célula</span>
-            <span className="sm:hidden">Célula</span>
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Gestao de celulas"
+        title="Celulas e recebimentos"
+        description="Centralize o acompanhamento das celulas, filtros de busca e registros de recebimento em uma leitura mais objetiva em qualquer tela."
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setDataChegada(formatLocalDate());
+                setIsRecebimentoModalOpen(true);
+              }}
+              className="button-base button-success"
+            >
+              <Plus size={18} />
+              Adicionar Recebimento
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(true)}
+              className="button-base button-primary"
+            >
+              <Plus size={18} />
+              Nova Celula
+            </button>
+          </>
+        }
+      />
 
       {/* --- BARRA DE FILTROS --- */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-wrap gap-3 items-center">
+      <div className="toolbar-surface flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2 text-slate-500 font-medium mr-2">
           <Filter size={20} />
           Filtros:
@@ -431,45 +435,16 @@ export default function CelulasPage() {
       </div>
       
       {/* --- CARDS DE RESUMO --- */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Total de Células</p>
-              <p className="text-2xl font-bold text-gray-900">{celulasVisiveis.length}</p>
-            </div>
-            <Users className="text-blue-500" size={24} />
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow border-l-4 border-green-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Total de KG</p>
-              <p className="text-2xl font-bold text-gray-900">{totalKG.toFixed(1)} kg</p>
-            </div>
-            <Weight className="text-green-500" size={24} />
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow border-l-4 border-purple-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Total de Itens</p>
-              <p className="text-2xl font-bold text-gray-900">{totalItens}</p>
-            </div>
-            <Box className="text-purple-500" size={24} />
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow border-l-4 border-orange-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Média por Célula</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {celulas.length > 0 ? (totalKG / celulas.length).toFixed(1) : '0.0'} kg
-              </p>
-            </div>
-            <Weight className="text-orange-500" size={24} />
-          </div>
-        </div>
+      <div className="stats-grid">
+        <StatCard label="Total de celulas" value={celulasVisiveis.length} icon={<Users className="h-5 w-5" />} tone="blue" />
+        <StatCard label="Total de KG" value={`${totalKG.toFixed(1)} kg`} icon={<Weight className="h-5 w-5" />} tone="green" />
+        <StatCard label="Total de itens" value={totalItens} icon={<Box className="h-5 w-5" />} tone="violet" />
+        <StatCard
+          label="Media por celula"
+          value={`${celulas.length > 0 ? (totalKG / celulas.length).toFixed(1) : '0.0'} kg`}
+          icon={<Weight className="h-5 w-5" />}
+          tone="amber"
+        />
       </div>
       
       {/* Checkbox "Ocultar Zeradas" */}

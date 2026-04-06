@@ -5,6 +5,7 @@ import { Users, TrendingUp, TrendingDown, Download, FileText } from 'lucide-reac
 import toast from 'react-hot-toast'; 
 import * as XLSX from 'xlsx'; 
 import { formatLocalDate, toUtcISOStringFromLocalDate } from '../utils/date';
+import { PageHeader, StatCard, Surface } from '../components/ui';
 
 // --- Interfaces Atualizadas ---
 interface Celula {
@@ -49,11 +50,10 @@ const formatNum = (n: number) => {
 
 function RankingBox({ title, data }: { title: string, data: [string, number][] }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <h3 className="mb-2 text-lg font-semibold text-slate-800">{title}</h3>
-      <ol className="text-sm text-slate-600 space-y-1">
+    <Surface title={title} className="h-full" bodyClassName="space-y-2">
+      <ol className="text-sm text-slate-600 space-y-2">
         {data.map(([nome, total], i) => (
-          <li key={nome + i} className="flex justify-between items-center">
+          <li key={nome + i} className="flex justify-between items-center rounded-2xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <span className="font-bold text-slate-800 flex-shrink-0">{i + 1}.</span>
               <span className="truncate">{nome}</span>
@@ -68,7 +68,7 @@ function RankingBox({ title, data }: { title: string, data: [string, number][] }
           </div>
         )}
       </ol>
-    </div>
+    </Surface>
   );
 }
 // --- Fim do Componente RankingBox ---
@@ -118,10 +118,11 @@ interface RedeStats {
   cor: string;
 }
 function AtividadeRedesChart({ data, onRedeClick }: { data: RedeStats[], onRedeClick: (rede: string) => void }) {
-  
+  const sortedData = useMemo(() => [...data].sort((a, b) => b.total - a.total), [data]);
+
   return (
     <div className="space-y-4">
-      {data.sort((a,b) => b.total - a.total).map(rede => {
+      {sortedData.map(rede => {
         const percAtivas = rede.total > 0 ? (rede.ativas / rede.total) * 100 : 0;
         const percInativas = rede.total > 0 ? (rede.inativas / rede.total) * 100 : 0;
         
@@ -607,74 +608,50 @@ export default function PainelGerenciador() {
   }
   
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h2 className="mr-4 flex items-center gap-2 text-2xl font-bold text-slate-800">
-          Painel Gerenciador
-        </h2>
-        
-        {/* Filtros de Data */}
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="date"
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-            value={dataIni}
-            onChange={(e) => setDataIni(e.target.value)}
-          />
-          <input
-            type="date"
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-            value={dataFim}
-            onChange={(e) => setDataFim(e.target.value)}
-          />
-          <button
-            onClick={handleGerarRelatorioEstrategico}
-            className="rounded-lg bg-indigo-600 text-white px-3 py-2 text-sm hover:bg-indigo-700 flex items-center gap-2"
-            title="Relatório completo por Rede, Supervisão e Líderes"
-          >
-            <FileText size={16} />
-            Relatório Estratégico
-          </button>
-          <button
-            onClick={handleExportExcel}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-            title="Exportar base de células para Excel"
-          >
-            <Download size={16} />
-            Exportar Base
-          </button>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Visao gerencial"
+        title="Painel gerenciador"
+        description="Leitura consolidada da atividade das celulas, entradas e saidas no periodo definido, com exportacoes estrategicas para acompanhamento."
+        actions={
+          <>
+            <input
+              type="date"
+              value={dataIni}
+              onChange={(e) => setDataIni(e.target.value)}
+              className="sm:min-w-[172px]"
+            />
+            <input
+              type="date"
+              value={dataFim}
+              onChange={(e) => setDataFim(e.target.value)}
+              className="sm:min-w-[172px]"
+            />
+            <button
+              onClick={handleGerarRelatorioEstrategico}
+              className="button-base button-primary"
+              title="Relatorio completo por Rede, Supervisao e Lideres"
+            >
+              <FileText size={16} />
+              Relatorio Estrategico
+            </button>
+            <button
+              onClick={handleExportExcel}
+              className="button-base button-secondary"
+              title="Exportar base de celulas para Excel"
+            >
+              <Download size={16} />
+              Exportar Base
+            </button>
+          </>
+        }
+      />
       
       {/* Cards de Resumo */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className={`rounded-xl bg-gradient-to-br from-indigo-500 to-blue-500 p-[1px] shadow`}>
-          <div className="rounded-xl bg-white p-4 flex items-center justify-between">
-            <div>
-              <div className="text-3xl font-bold text-slate-800">{stats.totalCelulas}</div>
-              <div className="text-sm text-slate-500">Total de Células</div>
-            </div>
-            <Users className="text-blue-500" size={24} />
-          </div>
-        </div>
-        <div className={`rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 p-[1px] shadow`}>
-          <div className="rounded-xl bg-white p-4 flex items-center justify-between">
-            <div>
-              <div className="text-3xl font-bold text-slate-800">{stats.celulasAtivas}</div>
-              <div className="text-sm text-slate-500">Células Entregues</div>
-            </div>
-            <TrendingUp className="text-green-500" size={24} />
-          </div>
-        </div>
-        <div className={`rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 p-[1px] shadow`}>
-          <div className="rounded-xl bg-white p-4 flex items-center justify-between">
-            <div>
-              <div className="text-3xl font-bold text-slate-800">{stats.celulasInativas}</div>
-              <div className="text-sm text-slate-500">Células Não Entregues</div>
-            </div>
-            <TrendingDown className="text-pink-500" size={24} />
-          </div>
-        </div>
+      <div className="stats-grid xl:grid-cols-3">
+        <StatCard label="Total de celulas" value={stats.totalCelulas} icon={<Users className="h-5 w-5" />} tone="blue" />
+        <StatCard label="Celulas entregues" value={stats.celulasAtivas} icon={<TrendingUp className="h-5 w-5" />} tone="green" />
+        <StatCard label="Celulas nao entregues" value={stats.celulasInativas} icon={<TrendingDown className="h-5 w-5" />} tone="rose" />
       </div>
 
       {/* --- RANKINGS ATUALIZADOS --- */}

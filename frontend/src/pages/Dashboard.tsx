@@ -1,17 +1,16 @@
-﻿// frontend/src/pages/Dashboard.tsx
-import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
-import * as XLSX from 'xlsx'; // Importa a biblioteca de Excel
-import { Download } from 'lucide-react'; // Ícone para o botão
-import { formatLocalDate } from '../utils/date';
+import { useEffect, useMemo, useState } from "react";
+import { BarChart3, Boxes, Download, Network, Users } from "lucide-react";
+import * as XLSX from "xlsx";
+import { supabase } from "../lib/supabaseClient";
+import { formatLocalDate } from "../utils/date";
+import { PageHeader, StatCard, Surface } from "../components/ui";
 
-// LÓGICA DE DADOS (LENDO DO NOVO 'historico_kg')
 type HistoricoComCelula = {
   quantidade: number;
-  quantidade_itens: number; // <-- CAMPO ADICIONADO
+  quantidade_itens: number;
   data_chegada: string;
-  observacoes: string | null; 
-  celulas: { // Dados da célula que fez o recebimento
+  observacoes: string | null;
+  celulas: {
     id: number;
     nome: string;
     lider?: string | null;
@@ -19,53 +18,73 @@ type HistoricoComCelula = {
     redes?: {
       cor: string | null;
     } | null;
-  } | null; 
+  } | null;
 };
 
 type Filtros = {
   rede: string;
   supervisao: string;
-  dataIni: string; 
-  dataFim: string; 
+  dataIni: string;
+  dataFim: string;
 };
 
 type RankingBoxProps = {
   title: string;
   data: [string, number][];
+  suffix?: string;
 };
 
-// Formato com 1 casa decimal (para KGs)
+const NETWORK_COLORS: Record<string, string> = {
+  BRANCA: "#E2E8F0",
+  BRANCO: "#E2E8F0",
+  AMARELA: "#FFEB3B",
+  AMARELO: "#FFEB3B",
+  VERMELHA: "#F44336",
+  VERMELHO: "#F44336",
+  VERDE: "#4CAF50",
+  AZUL: "#2196F3",
+  MARROM: "#8D6E63",
+  ROXA: "#9C27B0",
+  ROXO: "#9C27B0",
+};
+
 const formatPt = (n: number) =>
-  new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(n);
+  new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(n);
 
-// NOVO FORMATO para números inteiros (Itens)
 const formatInt = (n: number) =>
-  new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+  new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
 
-// Helper para evitar problemas de fuso/horário ao filtrar datas
-const getDateOnly = (iso: string) => (iso ? iso.slice(0, 10) : '');
+const getDateOnly = (iso: string) => (iso ? iso.slice(0, 10) : "");
 
-function RankingBox({ title, data }: RankingBoxProps) {
+const getNetworkColor = (value?: string | null) => NETWORK_COLORS[(value || "").toUpperCase()] || "#64748b";
+
+function RankingBox({ title, data, suffix = "" }: RankingBoxProps) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <h3 className="mb-2 text-lg font-semibold text-slate-800">{title}</h3>
-      <ol className="text-sm text-slate-600 space-y-1">
-        {data.map(([nome, total], i) => (
-          <li key={i} className="flex justify-between items-center">
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <span className="font-bold text-slate-800 flex-shrink-0">{i + 1}.</span>
-              <span className="truncate">{nome}</span>
-            </div>
-            <span className="font-semibold text-right ml-2 flex-shrink-0">{formatPt(total)} kg</span>
-          </li>
-        ))}
-        {data.length === 0 && (
-          <div className="text-sm text-slate-400">
-            Nenhum dado encontrado para os filtros selecionados.
-          </div>
-        )}
-      </ol>
-    </div>
+    <Surface title={title} className="h-full" bodyClassName="space-y-2">
+      {data.length === 0 ? (
+        <p className="text-sm text-slate-400">Nenhum dado encontrado para os filtros selecionados.</p>
+      ) : (
+        <ol className="space-y-2 text-sm text-slate-600">
+          {data.map(([nome, total], index) => (
+            <li
+              key={`${nome}-${index}`}
+              className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 px-3 py-2.5"
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-bold text-slate-700 shadow-sm">
+                  {index + 1}
+                </span>
+                <span className="truncate font-medium text-slate-700">{nome}</span>
+              </div>
+              <span className="shrink-0 text-right font-semibold text-slate-900">
+                {formatPt(total)}
+                {suffix}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </Surface>
   );
 }
 
@@ -73,40 +92,34 @@ export default function Dashboard() {
   const [todoHistorico, setTodoHistorico] = useState<HistoricoComCelula[]>([]);
   const [loading, setLoading] = useState(true);
   const [redesDisponiveis, setRedesDisponiveis] = useState<string[]>([]);
-
-  // Filtros (datas começam vazias)
   const [filtros, setFiltros] = useState<Filtros>({
-    rede: 'Todas',
-    supervisao: 'Todos',
-    dataIni: '',
-    dataFim: '',
+    rede: "Todas",
+    supervisao: "Todos",
+    dataIni: "",
+    dataFim: "",
   });
 
-  // Opções dos selects (derivadas do histórico)
   const opcoesRede = useMemo(() => {
-    const set = new Set<string>(redesDisponiveis.map((r) => r.toUpperCase()));
-    todoHistorico.forEach((r) => set.add((r.celulas?.redes?.cor || 'Sem rede').toUpperCase()));
-    return ['Todas', ...Array.from(set).sort()];
+    const set = new Set<string>(redesDisponiveis.map((rede) => rede.toUpperCase()));
+    todoHistorico.forEach((registro) => set.add((registro.celulas?.redes?.cor || "Sem rede").toUpperCase()));
+    return ["Todas", ...Array.from(set).sort()];
   }, [todoHistorico, redesDisponiveis]);
 
   const opcoesSupervisao = useMemo(() => {
     const set = new Set<string>();
-    todoHistorico.forEach((r) => set.add((r.celulas?.supervisores || 'N/D').toUpperCase()));
-    return ['Todos', ...Array.from(set).sort()];
+    todoHistorico.forEach((registro) => set.add((registro.celulas?.supervisores || "N/D").toUpperCase()));
+    return ["Todos", ...Array.from(set).sort()];
   }, [todoHistorico]);
 
-  // Carregamento inicial (lendo de 'historico_kg')
   useEffect(() => {
     (async () => {
       setLoading(true);
       const [{ data, error }, { data: redesData }] = await Promise.all([
-        supabase
-        .from('historico_kg') // <--- LENDO DA TABELA CORRETA
-        .select(`
+        supabase.from("historico_kg").select(`
           quantidade,
-          quantidade_itens, 
+          quantidade_itens,
           data_chegada,
-          observacoes, 
+          observacoes,
           celulas (
             id,
             nome,
@@ -115,325 +128,371 @@ export default function Dashboard() {
             redes (cor)
           )
         `),
-        supabase.from('redes').select('cor').eq('ativo', true)
+        supabase.from("redes").select("cor").eq("ativo", true),
       ]);
 
       if (error) {
-        console.error('Erro ao buscar histórico:', error);
+        console.error("Erro ao buscar historico:", error);
         setTodoHistorico([]);
       } else {
-        const normalizados = (data || []).map((r: any) => ({
-          ...r,
-          data_chegada: getDateOnly(r.data_chegada),
+        const normalizados = (data || []).map((registro: any) => ({
+          ...registro,
+          data_chegada: getDateOnly(registro.data_chegada),
         }));
         setTodoHistorico(normalizados as HistoricoComCelula[]);
       }
+
       const listaRedes = (redesData || [])
-        .map((r: { cor: string | null }) => (r.cor || '').toUpperCase())
+        .map((rede: { cor: string | null }) => (rede.cor || "").toUpperCase())
         .filter(Boolean);
       setRedesDisponiveis(listaRedes);
       setLoading(false);
     })();
   }, []);
 
-  // Aplica filtros (COM A LÓGICA DE DATA CORRIGIDA)
   const filtradas = useMemo(() => {
-    let arr = [...todoHistorico];
+    let registros = [...todoHistorico];
 
-    if (filtros.rede !== 'Todas') {
+    if (filtros.rede !== "Todas") {
       const alvo = filtros.rede.toUpperCase();
-      arr = arr.filter((r) => (r.celulas?.redes?.cor || 'Sem rede').toUpperCase() === alvo);
+      registros = registros.filter(
+        (registro) => (registro.celulas?.redes?.cor || "Sem rede").toUpperCase() === alvo
+      );
     }
 
-    if (filtros.supervisao !== 'Todos') {
+    if (filtros.supervisao !== "Todos") {
       const alvo = filtros.supervisao.toUpperCase();
-      arr = arr.filter((r) => (r.celulas?.supervisores || '').toUpperCase() === alvo);
+      registros = registros.filter(
+        (registro) => (registro.celulas?.supervisores || "").toUpperCase() === alvo
+      );
     }
 
     if (filtros.dataIni) {
-      const ini = filtros.dataIni;
-      arr = arr.filter((r) => getDateOnly(r.data_chegada) >= ini);
-    }
-    if (filtros.dataFim) {
-      const fim = filtros.dataFim;
-      arr = arr.filter((r) => getDateOnly(r.data_chegada) <= fim);
+      registros = registros.filter((registro) => getDateOnly(registro.data_chegada) >= filtros.dataIni);
     }
 
-    return arr;
+    if (filtros.dataFim) {
+      registros = registros.filter((registro) => getDateOnly(registro.data_chegada) <= filtros.dataFim);
+    }
+
+    return registros;
   }, [todoHistorico, filtros]);
 
-  // ---- Métricas (baseadas no histórico filtrado)
   const celulasUnicas = useMemo(() => {
-    const set = new Set<number>();
-    filtradas.forEach((r) => {
-      if (r.celulas?.id) set.add(r.celulas.id);
+    const ids = new Set<number>();
+    filtradas.forEach((registro) => {
+      if (registro.celulas?.id) ids.add(registro.celulas.id);
     });
-    return set;
+    return ids;
   }, [filtradas]);
 
   const totalCelulas = celulasUnicas.size;
   const totalKg = useMemo(
-    () => filtradas.reduce((s, r) => s + (Number(r.quantidade) || 0), 0),
+    () => filtradas.reduce((soma, registro) => soma + (Number(registro.quantidade) || 0), 0),
+    [filtradas]
+  );
+  const totalItens = useMemo(
+    () => filtradas.reduce((soma, registro) => soma + (Number(registro.quantidade_itens) || 0), 0),
     [filtradas]
   );
   const mediaKg = totalCelulas > 0 ? totalKg / totalCelulas : 0;
-  
-  // --- MÉTRICA ADICIONADA ---
-  const totalItens = useMemo(
-    () => filtradas.reduce((s, r) => s + (Number(r.quantidade_itens) || 0), 0),
-    [filtradas]
-  );
 
-  // ---- Rankings (baseados no histórico filtrado)
   const topSupervisao = useMemo(() => {
     const mapa = new Map<string, number>();
-    filtradas.forEach((r) => {
-      if (!r.celulas) return;
-      const chave = (r.celulas.supervisores || 'N/D').toUpperCase();
-      const qtd = Number(r.quantidade) || 0;
-      mapa.set(chave, (mapa.get(chave) || 0) + qtd);
+    filtradas.forEach((registro) => {
+      if (!registro.celulas) return;
+      const chave = (registro.celulas.supervisores || "N/D").toUpperCase();
+      mapa.set(chave, (mapa.get(chave) || 0) + (Number(registro.quantidade) || 0));
     });
     return Array.from(mapa.entries()).sort((a, b) => b[1] - a[1]).slice(0, 15);
   }, [filtradas]);
 
   const topCelulas = useMemo(() => {
     const mapa = new Map<string, number>();
-    filtradas.forEach((r) => {
-      if (!r.celulas) return;
-      const chave = r.celulas.nome;
-      const qtd = Number(r.quantidade) || 0;
-      mapa.set(chave, (mapa.get(chave) || 0) + qtd);
+    filtradas.forEach((registro) => {
+      if (!registro.celulas) return;
+      const chave = registro.celulas.nome;
+      mapa.set(chave, (mapa.get(chave) || 0) + (Number(registro.quantidade) || 0));
     });
     return Array.from(mapa.entries()).sort((a, b) => b[1] - a[1]).slice(0, 15);
   }, [filtradas]);
 
   const rankingRedes = useMemo(() => {
     const mapa = new Map<string, number>();
-    filtradas.forEach((r) => {
-      if (!r.celulas?.redes) return;
-      const cor = (r.celulas.redes.cor || 'Sem rede').toUpperCase();
-      const qtd = Number(r.quantidade) || 0;
-      mapa.set(cor, (mapa.get(cor) || 0) + qtd);
+    filtradas.forEach((registro) => {
+      const cor = (registro.celulas?.redes?.cor || "Sem rede").toUpperCase();
+      mapa.set(cor, (mapa.get(cor) || 0) + (Number(registro.quantidade) || 0));
     });
     return Array.from(mapa.entries()).sort((a, b) => b[1] - a[1]);
   }, [filtradas]);
 
-  // --- FUNÇÃO DE EXPORTAR PARA EXCEL (ATUALIZADA) ---
+  const totalRedesKg = useMemo(
+    () => rankingRedes.reduce((total, [, kg]) => total + kg, 0),
+    [rankingRedes]
+  );
+
+  const topSupervisaoMax = useMemo(
+    () => topSupervisao.reduce((max, [, kg]) => Math.max(max, kg), 0),
+    [topSupervisao]
+  );
+
+  const supervisaoColors = useMemo(() => {
+    const mapa = new Map<string, string>();
+    filtradas.forEach((registro) => {
+      if (!registro.celulas) return;
+      const chave = (registro.celulas.supervisores || "N/D").toUpperCase();
+      if (!mapa.has(chave)) {
+        mapa.set(chave, getNetworkColor(registro.celulas.redes?.cor));
+      }
+    });
+    return mapa;
+  }, [filtradas]);
+
   const handleExportExcel = () => {
     const dataSupervisao = topSupervisao.map(([Supervisao, KG]) => ({ Supervisao, KG }));
     const dataCelulas = topCelulas.map(([Celula, KG]) => ({ Celula, KG }));
     const dataRedes = rankingRedes.map(([Rede, KG]) => ({ Rede, KG }));
-    
-    const dataDetalhada = filtradas.map(r => ({
-      'Data': getDateOnly(r.data_chegada),
-      'Celula': r.celulas?.nome || 'N/D',
-      'Supervisores': r.celulas?.supervisores || 'N/D',
-      'Rede': r.celulas?.redes?.cor || 'N/D',
-      'Quantidade_KG': r.quantidade,
-      'Quantidade_Itens': r.quantidade_itens || 0, // <-- COLUNA ADICIONADA
-      'Observacoes': r.observacoes || '' 
+    const dataDetalhada = filtradas.map((registro) => ({
+      Data: getDateOnly(registro.data_chegada),
+      Celula: registro.celulas?.nome || "N/D",
+      Supervisores: registro.celulas?.supervisores || "N/D",
+      Rede: registro.celulas?.redes?.cor || "N/D",
+      Quantidade_KG: registro.quantidade,
+      Quantidade_Itens: registro.quantidade_itens || 0,
+      Observacoes: registro.observacoes || "",
     }));
 
-    const wsSupervisao = XLSX.utils.json_to_sheet(dataSupervisao);
-    const wsCelulas = XLSX.utils.json_to_sheet(dataCelulas);
-    const wsRedes = XLSX.utils.json_to_sheet(dataRedes);
-    const wsDetalhada = XLSX.utils.json_to_sheet(dataDetalhada);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dataDetalhada), "Lancamentos Filtrados");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dataSupervisao), "Top Supervisao");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dataCelulas), "Top Celulas");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dataRedes), "Ranking Redes");
 
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, wsDetalhada, "Lançamentos Filtrados");
-    XLSX.utils.book_append_sheet(wb, wsSupervisao, "Top Supervisão");
-    XLSX.utils.book_append_sheet(wb, wsCelulas, "Top Células");
-    XLSX.utils.book_append_sheet(wb, wsRedes, "Ranking Redes");
-
-    const dataHoje = formatLocalDate();
-    const nomeArquivo = `Relatorio_KG_do_Amor_${dataHoje}.xlsx`;
-    XLSX.writeFile(wb, nomeArquivo);
+    XLSX.writeFile(workbook, `Relatorio_KG_do_Amor_${formatLocalDate()}.xlsx`);
   };
 
-  // ---- UI (COM DESIGN ORIGINAL RESTAURADO)
-  return (
-    <div className="space-y-6 p-6">
-      {/* Título e Filtros */}
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="mr-4 flex items-center gap-2 text-2xl font-bold text-slate-800">
-          <span>📊</span> Dashboard
-        </h2>
-        
-        {/* Filtros */}
-        <select
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-          value={filtros.rede}
-          onChange={(e) => setFiltros((f) => ({ ...f, rede: e.target.value }))}
-        >
-          {opcoesRede.map((r) => (<option key={r} value={r}>{r === 'Todas' ? 'COR DA REDE' : r}</option>))}
-        </select>
-        <select
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-          value={filtros.supervisao}
-          onChange={(e) => setFiltros((f) => ({ ...f, supervisao: e.target.value }))}
-        >
-          {opcoesSupervisao.map((s) => (<option key={s} value={s}>{s === 'Todos' ? 'SUPERVISÃO' : s}</option>))}
-        </select>
-        <input
-          type="date"
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-          value={filtros.dataIni}
-          onChange={(e) => setFiltros((f) => ({ ...f, dataIni: e.target.value }))}
-        />
-        <input
-          type="date"
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-          value={filtros.dataFim}
-          onChange={(e) => setFiltros((f) => ({ ...f, dataFim: e.target.value }))}
-        />
-
-        {/* --- BOTÃO DE EXPORTAR --- */}
-        <button
-          onClick={handleExportExcel}
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-          title="Exportar para Excel"
-        >
-          <Download size={16} />
-          Exportar
-        </button>
-      </div>
-
-      {/* Cards --- ATUALIZADO --- */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          { label: 'Células com Doações', value: totalCelulas.toString(), color: 'from-indigo-500 to-blue-500' },
-          { label: 'Total de KG no Período', value: `${formatPt(totalKg)} kg`, color: 'from-emerald-500 to-teal-500' },
-          { label: 'Média por Célula', value: `${formatPt(mediaKg)} kg`, color: 'from-amber-500 to-orange-500' },
-          // --- CARD ALTERADO ---
-          { label: 'Total de Itens', value: formatInt(totalItens), color: 'from-rose-500 to-pink-500' },
-        ].map((c, i) => (
-          <div key={i} className={`rounded-xl bg-gradient-to-br ${c.color} p-[1px] shadow`}>
-            <div className="rounded-xl bg-white p-4">
-              <div className="text-3xl font-bold text-slate-800">{c.value}</div>
-              <div className="text-sm text-slate-500">{c.label}</div>
-            </div>
+  if (loading) {
+    return (
+      <div className="grid min-h-[60vh] place-items-center">
+        <div className="app-surface flex min-w-[280px] flex-col items-center gap-4 px-8 py-10 text-center">
+          <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-slate-200 border-t-slate-900" />
+          <div>
+            <div className="text-base font-semibold text-slate-900">Carregando dashboard</div>
+            <div className="mt-1 text-sm text-slate-500">Consolidando dados operacionais.</div>
           </div>
-        ))}
-      </div>
-
-      {/* Rankings */}
-      <div className="grid gap-6 grid-cols-1 lg:grid-cols-12">
-        <div className="lg:col-span-4">
-          <RankingBox title="TOP 15 - SUPERVISÃO" data={topSupervisao} />
-        </div>
-        <div className="lg:col-span-5">
-          <RankingBox title="TOP 15 CÉLULAS" data={topCelulas} />
-        </div>
-        <div className="lg:col-span-3">
-          <RankingBox title="RANKING DE REDE" data={rankingRedes} />
         </div>
       </div>
+    );
+  }
 
-      {/* Gráficos */}
-      <div className="grid gap-6 grid-cols-1 lg:grid-cols-5">
-        <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-4">
-          <h3 className="mb-2 text-lg font-semibold text-slate-800">Distribuição por Redes</h3>
-          <div className="flex items-center gap-4">
-            <div className="flex-shrink-0">
-              <svg width="140" height="140" viewBox="0 0 140 140" className="transform -rotate-90">
-                {rankingRedes.length > 0 ? (() => {
-                  const total = rankingRedes.reduce((sum, [, kg]) => sum + kg, 0);
-                  if (total === 0) return <circle cx="70" cy="70" r="55" fill="#e2e8f0" />;
-                  let currentAngle = 0;
-                  const coresRede: { [key: string]: string } = {
-                    'BRANCA': '#E2E8F0', 'BRANCO': '#E2E8F0', 'AMARELA': '#FFEB3B', 'AMARELO': '#FFEB3B',
-                    'VERMELHA': '#F44336', 'VERMELHO': '#F44336', 'VERDE': '#4CAF50', 'AZUL': '#2196F3',
-                    'MARROM': '#8D6E63', 'ROXA': '#9C27B0', 'ROXO': '#9C27B0'
-                  };
-                  return rankingRedes.map(([cor, kg]) => {
-                    if (kg === 0) return null;
-                    const angle = (kg / total) * 360;
-                    const startAngle = currentAngle; const endAngle = currentAngle + angle;
-                    const startAngleRad = (startAngle * Math.PI) / 180; const endAngleRad = (endAngle * Math.PI) / 180;
-                    const largeArcFlag = angle > 180 ? 1 : 0;
-                    const x1 = 70 + 55 * Math.cos(startAngleRad); const y1 = 70 + 55 * Math.sin(startAngleRad);
-                    const x2 = 70 + 55 * Math.cos(endAngleRad); const y2 = 70 + 55 * Math.sin(endAngleRad);
-                    const pathData = [ `M 70 70`, `L ${x1} ${y1}`, `A 55 55 0 ${largeArcFlag} 1 ${x2} ${y2}`, 'Z' ].join(' ');
-                    currentAngle += angle;
-                    const corFinal = coresRede[cor.toUpperCase()] || '#64748b';
-                    return (
-                      <g key={cor}>
-                        <path d={pathData} fill={corFinal}
-                          stroke={cor.toUpperCase() === 'BRANCA' || cor.toUpperCase() === 'BRANCO' ? '#cbd5e1' : 'white'}
-                          strokeWidth="2" />
-                      </g>
-                    );
-                  });
-                })() : ( <circle cx="70" cy="70" r="55" fill="#e2e8f0" /> )}
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Visao operacional"
+        title="Dashboard de recebimentos"
+        description="Acompanhe o volume recebido, desempenho por supervisao e distribuicao por redes com filtros rapidos para diferentes periodos."
+        actions={
+          <button type="button" onClick={handleExportExcel} className="button-base button-secondary">
+            <Download className="h-4 w-4" />
+            Exportar Excel
+          </button>
+        }
+      />
+
+      <div className="toolbar-surface">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="pill">
+            <Network className="h-3.5 w-3.5" />
+            Filtros ativos
+          </span>
+          <span className="text-sm text-slate-500">
+            Refine a leitura por rede, supervisao e intervalo de datas.
+          </span>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.1fr_1.1fr_0.9fr_0.9fr]">
+          <select
+            value={filtros.rede}
+            onChange={(event) => setFiltros((prev) => ({ ...prev, rede: event.target.value }))}
+          >
+            {opcoesRede.map((rede) => (
+              <option key={rede} value={rede}>
+                {rede === "Todas" ? "Cor da rede" : rede}
+              </option>
+            ))}
+          </select>
+          <select
+            value={filtros.supervisao}
+            onChange={(event) => setFiltros((prev) => ({ ...prev, supervisao: event.target.value }))}
+          >
+            {opcoesSupervisao.map((supervisao) => (
+              <option key={supervisao} value={supervisao}>
+                {supervisao === "Todos" ? "Supervisao" : supervisao}
+              </option>
+            ))}
+          </select>
+          <input
+            type="date"
+            value={filtros.dataIni}
+            onChange={(event) => setFiltros((prev) => ({ ...prev, dataIni: event.target.value }))}
+          />
+          <input
+            type="date"
+            value={filtros.dataFim}
+            onChange={(event) => setFiltros((prev) => ({ ...prev, dataFim: event.target.value }))}
+          />
+        </div>
+      </div>
+
+      <div className="stats-grid">
+        <StatCard
+          label="Celulas com doacoes"
+          value={totalCelulas}
+          note="Total unico dentro do recorte atual"
+          icon={<Users className="h-5 w-5" />}
+          tone="blue"
+        />
+        <StatCard
+          label="Volume no periodo"
+          value={`${formatPt(totalKg)} kg`}
+          note="Soma consolidada dos lancamentos filtrados"
+          icon={<BarChart3 className="h-5 w-5" />}
+          tone="green"
+        />
+        <StatCard
+          label="Media por celula"
+          value={`${formatPt(mediaKg)} kg`}
+          note="Media apenas entre celulas com registro"
+          icon={<Network className="h-5 w-5" />}
+          tone="amber"
+        />
+        <StatCard
+          label="Itens recebidos"
+          value={formatInt(totalItens)}
+          note="Quantidade total de itens lancados"
+          icon={<Boxes className="h-5 w-5" />}
+          tone="rose"
+        />
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.05fr_1.25fr_0.9fr]">
+        <RankingBox title="Top 15 supervisoes" data={topSupervisao} suffix=" kg" />
+        <RankingBox title="Top 15 celulas" data={topCelulas} suffix=" kg" />
+        <RankingBox title="Ranking de rede" data={rankingRedes} suffix=" kg" />
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.05fr_1.35fr]">
+        <Surface
+          title="Distribuicao por redes"
+          subtitle="Participacao percentual do volume recebido por cor de rede."
+        >
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-center">
+            <div className="mx-auto shrink-0">
+              <svg width="180" height="180" viewBox="0 0 140 140" className="-rotate-90">
+                {rankingRedes.length > 0 && totalRedesKg > 0 ? (
+                  (() => {
+                    let currentAngle = 0;
+                    return rankingRedes.map(([cor, kg]) => {
+                      if (kg === 0) return null;
+                      const angle = (kg / totalRedesKg) * 360;
+                      const startAngle = currentAngle;
+                      const endAngle = currentAngle + angle;
+                      const startAngleRad = (startAngle * Math.PI) / 180;
+                      const endAngleRad = (endAngle * Math.PI) / 180;
+                      const largeArcFlag = angle > 180 ? 1 : 0;
+                      const x1 = 70 + 55 * Math.cos(startAngleRad);
+                      const y1 = 70 + 55 * Math.sin(startAngleRad);
+                      const x2 = 70 + 55 * Math.cos(endAngleRad);
+                      const y2 = 70 + 55 * Math.sin(endAngleRad);
+                      const pathData = ["M 70 70", `L ${x1} ${y1}`, `A 55 55 0 ${largeArcFlag} 1 ${x2} ${y2}`, "Z"].join(" ");
+                      currentAngle += angle;
+
+                      return (
+                        <path
+                          key={cor}
+                          d={pathData}
+                          fill={getNetworkColor(cor)}
+                          stroke={cor === "BRANCA" || cor === "BRANCO" ? "#cbd5e1" : "white"}
+                          strokeWidth="2"
+                        />
+                      );
+                    });
+                  })()
+                ) : (
+                  <circle cx="70" cy="70" r="55" fill="#e2e8f0" />
+                )}
+                <circle cx="70" cy="70" r="28" fill="white" />
               </svg>
             </div>
-            <div className="flex-1 space-y-1">
-              {rankingRedes.map(([cor, kg]) => {
-                const coresRede: { [key: string]: string } = {
-                  'BRANCA': '#E2E8F0', 'BRANCO': '#E2E8F0', 'AMARELA': '#FFEB3B', 'AMARELO': '#FFEB3B',
-                  'VERMELHA': '#F44336', 'VERMELHO': '#F44336', 'VERDE': '#4CAF50', 'AZUL': '#2196F3',
-                  'MARROM': '#8D6E63', 'ROXA': '#9C27B0', 'ROXO': '#9C27B0'
-                };
-                const total = rankingRedes.reduce((sum, [, weight]) => sum + weight, 0);
-                const percentage = total > 0 ? ((kg / total) * 100).toFixed(1) : '0';
-                const corFinal = coresRede[cor.toUpperCase()] || '#64748b';
-                if (kg === 0) return null;
-                return (
-                  <div key={cor} className="flex items-center gap-2 text-xs">
-                    <div className="w-3 h-3 rounded-full border"
-                      style={{ 
-                        backgroundColor: corFinal,
-                        borderColor: cor.toUpperCase() === 'BRANCA' || cor.toUpperCase() === 'BRANCO' ? '#cbd5e1' : 'transparent'
-                      }}
-                    ></div>
-                    <span className="flex-1 font-medium">{cor}</span>
-                    <span className="font-semibold">{percentage}%</span>
-                  </div>
-                );
-              })}
+
+            <div className="flex-1 space-y-2">
+              {rankingRedes.length === 0 ? (
+                <p className="text-sm text-slate-400">Nenhum dado disponivel para este recorte.</p>
+              ) : (
+                rankingRedes.map(([cor, kg]) => {
+                  if (kg === 0) return null;
+                  const percentage = totalRedesKg > 0 ? ((kg / totalRedesKg) * 100).toFixed(1) : "0";
+                  return (
+                    <div
+                      key={cor}
+                      className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 text-sm"
+                    >
+                      <div
+                        className="h-3.5 w-3.5 rounded-full border"
+                        style={{
+                          backgroundColor: getNetworkColor(cor),
+                          borderColor: cor === "BRANCA" || cor === "BRANCO" ? "#cbd5e1" : "transparent",
+                        }}
+                      />
+                      <span className="flex-1 font-medium text-slate-700">{cor}</span>
+                      <span className="font-semibold text-slate-900">{percentage}%</span>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
-        </div>
-        <div className="lg:col-span-3 rounded-xl border border-slate-200 bg-white p-4">
-          <h3 className="mb-2 text-lg font-semibold text-slate-800">Top 15 Supervisões</h3>
-          <div className="h-52 flex items-end justify-between gap-1 px-1">
-            {topSupervisao.slice(0, 15).map(([nome, kg], index) => {
-              const maxKg = Math.max(...topSupervisao.slice(0, 15).map(([, weight]) => weight));
-              const height = maxKg > 0 ? (kg / maxKg) * 180 : 0;
-              const primeiroRecebimento = filtradas.find(r => r.celulas?.supervisores.toUpperCase() === nome.toUpperCase());
-              const corRede = primeiroRecebimento?.celulas?.redes?.cor;
-              const coresRede: { [key: string]: string } = {
-                'BRANCA': '#E2E8F0', 'BRANCO': '#E2E8F0', 'AMARELA': '#FFEB3B', 'AMARELO': '#FFEB3B',
-                'VERMELHA': '#F44336', 'VERMELHO': '#F44336', 'VERDE': '#4CAF50', 'AZUL': '#2196F3',
-                'MARROM': '#8D6E63', 'ROXA': '#9C27B0', 'ROXO': '#9C27B0'
-              };
-              const corFinal = corRede ? (coresRede[corRede.toUpperCase()] || '#64748b') : '#64748b';
-              if (kg === 0) return null;
-              return (
-                <div key={nome} className="flex flex-col items-center group relative">
-                  <div
-                    className="w-6 transition-all duration-200 group-hover:opacity-80 rounded-t border-b-2"
-                    style={{ 
-                      height: `${height}px`, 
-                      backgroundColor: corFinal,
-                      borderColor: corRede?.toUpperCase() === 'BRANCA' || corRede?.toUpperCase() === 'BRANCO' ? '#cbd5e1' : 'transparent'
-                    }}
-                  ></div>
-                  <div className="mt-1 text-xs font-bold text-slate-700">{index + 1}º</div>
-                  <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-8 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                    <div className="font-medium">{nome}</div>
-                    <div>{formatPt(kg)} kg</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="mt-2 text-xs text-slate-500 text-center">
-            Passe o mouse sobre as barras para ver detalhes
-          </div>
-        </div>
+        </Surface>
+
+        <Surface
+          title="Top 15 supervisoes"
+          subtitle="Escala visual do volume total por supervisao dentro do periodo filtrado."
+        >
+          {topSupervisao.length === 0 ? (
+            <p className="text-sm text-slate-400">Nenhum ranking disponivel para o filtro atual.</p>
+          ) : (
+            <>
+              <div className="flex h-64 items-end justify-between gap-2 overflow-x-auto rounded-[22px] bg-slate-50/90 px-4 pb-4 pt-6">
+                {topSupervisao.map(([nome, kg], index) => {
+                  const height = topSupervisaoMax > 0 ? Math.max((kg / topSupervisaoMax) * 180, 18) : 18;
+                  const color = supervisaoColors.get(nome.toUpperCase()) || "#64748b";
+                  const isLight = color === "#E2E8F0";
+
+                  return (
+                    <div key={nome} className="group relative flex min-w-[44px] flex-col items-center justify-end gap-2">
+                      <div className="absolute bottom-full mb-3 hidden rounded-2xl bg-slate-900 px-3 py-2 text-xs text-white shadow-lg group-hover:block">
+                        <div className="font-medium">{nome}</div>
+                        <div>{formatPt(kg)} kg</div>
+                      </div>
+                      <div
+                        className="w-9 rounded-t-[14px] border-b-2 transition duration-200 group-hover:opacity-85"
+                        style={{
+                          height: `${height}px`,
+                          backgroundColor: color,
+                          borderColor: isLight ? "#cbd5e1" : "transparent",
+                        }}
+                      />
+                      <div className="text-xs font-semibold text-slate-700">{index + 1}o</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-4 text-xs text-slate-500">
+                Passe o cursor sobre as barras para visualizar o nome da supervisao e o total em kg.
+              </div>
+            </>
+          )}
+        </Surface>
       </div>
     </div>
   );
 }
-

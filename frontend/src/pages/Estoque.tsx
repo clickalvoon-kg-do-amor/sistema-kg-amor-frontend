@@ -1,10 +1,9 @@
-// frontend/src/pages/Estoque.tsx
-import React, { useState, useEffect, useMemo } from 'react';
-import { supabase } from '../lib/supabaseClient';
-import { Package, Search, ChevronDown, ChevronUp } from 'lucide-react';
-import toast from 'react-hot-toast';
+import React, { useState, useEffect, useMemo } from "react";
+import { Boxes, ChevronDown, ChevronUp, Package, Search } from "lucide-react";
+import toast from "react-hot-toast";
+import { supabase } from "../lib/supabaseClient";
+import { EmptyState, PageHeader, Surface, StatCard } from "../components/ui";
 
-// Interfaces
 interface Categoria {
   id: number;
   nome: string;
@@ -12,10 +11,10 @@ interface Categoria {
 }
 
 interface EstoqueItem {
-  id: number; // ID da linha de estoque
+  id: number;
   quantidade_atual: number;
   localizacao: string | null;
-  produtos: { // Dados do produto via join
+  produtos: {
     id: number;
     nome: string;
     unidade: string;
@@ -30,16 +29,15 @@ interface EstoqueItem {
 export default function EstoquePage() {
   const [itensEstoque, setItensEstoque] = useState<EstoqueItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState("");
   const [expandedCategoria, setExpandedCategoria] = useState<number | null>(null);
 
-  // Carrega os dados do estoque
   useEffect(() => {
     async function carregarEstoque() {
       try {
         setLoading(true);
         const { data, error } = await supabase
-          .from('estoque')
+          .from("estoque")
           .select(`
             id,
             quantidade_atual,
@@ -55,135 +53,151 @@ export default function EstoquePage() {
               )
             )
           `)
-          .gt('quantidade_atual', 0) // Puxa apenas itens que têm estoque
-          .order('nome', { referencedTable: 'produtos', ascending: true });
-        
+          .gt("quantidade_atual", 0)
+          .order("nome", { referencedTable: "produtos", ascending: true });
+
         if (error) throw error;
-        setItensEstoque(data as EstoqueItem[] || []);
+        setItensEstoque((data as EstoqueItem[]) || []);
       } catch (error: any) {
-        console.error('Erro ao carregar estoque:', error);
-        toast.error('Erro ao carregar estoque: ' + error.message);
+        console.error("Erro ao carregar estoque:", error);
+        toast.error("Erro ao carregar estoque: " + error.message);
       } finally {
         setLoading(false);
       }
     }
+
     carregarEstoque();
   }, []);
 
-  // Agrupa os itens por categoria
   const itensPorCategoria = useMemo(() => {
-    const agrupado: { [key: string]: { categoria: Categoria, itens: EstoqueItem[] } } = {};
+    const agrupado: Record<string, { categoria: Categoria; itens: EstoqueItem[] }> = {};
 
-    const itensFiltrados = itensEstoque.filter(item => 
+    const itensFiltrados = itensEstoque.filter((item) =>
       item.produtos?.nome.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    itensFiltrados.forEach(item => {
+    itensFiltrados.forEach((item) => {
       const categoria = item.produtos?.categorias;
-      const catNome = categoria?.nome || 'Sem Categoria';
-      
+      const catNome = categoria?.nome || "Sem Categoria";
+
       if (!agrupado[catNome]) {
         agrupado[catNome] = {
           categoria: {
-            id: categoria?.id || 0,
+            id: item.produtos?.categoria_id || 0,
             nome: catNome,
-            cor: categoria?.cor || '#6B7280'
+            cor: categoria?.cor || "#6B7280",
           },
-          itens: []
+          itens: [],
         };
       }
+
       agrupado[catNome].itens.push(item);
     });
-    
-    // Converte o objeto em array e ordena
-    return Object.values(agrupado).sort((a, b) => a.categoria.nome.localeCompare(b.categoria.nome));
 
+    return Object.values(agrupado).sort((a, b) => a.categoria.nome.localeCompare(b.categoria.nome));
   }, [itensEstoque, searchTerm]);
+
+  const totalCategorias = itensPorCategoria.length;
+  const totalProdutos = itensEstoque.length;
+  const totalQuantidade = useMemo(
+    () => itensEstoque.reduce((total, item) => total + (Number(item.quantidade_atual) || 0), 0),
+    [itensEstoque]
+  );
 
   if (loading) {
     return (
-      <div className="min-h-screen grid place-items-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-slate-600">Carregando estoque...</p>
+      <div className="grid min-h-[60vh] place-items-center">
+        <div className="app-surface flex min-w-[280px] flex-col items-center gap-4 px-8 py-10 text-center">
+          <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-slate-200 border-t-slate-900" />
+          <div>
+            <div className="text-base font-semibold text-slate-900">Carregando estoque</div>
+            <div className="mt-1 text-sm text-slate-500">Preparando a consulta dos itens disponiveis.</div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4 lg:space-y-6 p-4 lg:p-0">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <h2 className="flex items-center gap-2 text-xl lg:text-2xl font-bold text-slate-800">
-          <Package className="h-5 w-5 lg:h-6 lg:w-6" />
-          Consulta de Estoque
-        </h2>
-        {/* Futuramente, botão de "Nova Retirada" virá aqui */}
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Consulta de estoque"
+        title="Visao atual do estoque"
+        description="Encontre rapidamente produtos disponiveis, distribuidos por categoria, com foco em leitura clara no desktop e no mobile."
+      />
+
+      <div className="stats-grid xl:grid-cols-3">
+        <StatCard label="Categorias com itens" value={totalCategorias} icon={<Boxes className="h-5 w-5" />} tone="blue" />
+        <StatCard label="Produtos ativos" value={totalProdutos} icon={<Package className="h-5 w-5" />} tone="green" />
+        <StatCard label="Quantidade total" value={totalQuantidade} icon={<Search className="h-5 w-5" />} tone="amber" />
       </div>
 
-      {/* Barra de Busca */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
-        <input
-          type="text"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Buscar produto no estoque..."
-          className="w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-        />
+      <div className="toolbar-surface">
+        <div className="relative max-w-xl">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Buscar produto no estoque..."
+            className="pl-10"
+          />
+        </div>
       </div>
 
-      {/* Lista de Itens em Estoque */}
-      <div className="space-y-3">
+      <div className="space-y-4">
         {itensPorCategoria.length === 0 ? (
-           <div className="p-8 text-center text-slate-500">
-             <Package className="h-12 w-12 mx-auto mb-4 text-slate-300" />
-             <p className="text-lg font-medium mb-2">Estoque vazio</p>
-             <p className="text-sm">Nenhum produto encontrado no estoque.</p>
-           </div>
+          <EmptyState
+            icon={<Package className="h-7 w-7" />}
+            title="Estoque vazio"
+            description="Nenhum produto foi encontrado com os filtros atuais."
+          />
         ) : (
           itensPorCategoria.map(({ categoria, itens }) => (
-            <div key={categoria.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              {/* Header da Categoria */}
+            <Surface key={`${categoria.id}-${categoria.nome}`} className="overflow-hidden" bodyClassName="p-0">
               <button
-                onClick={() => setExpandedCategoria(prev => (prev === categoria.id ? null : categoria.id))}
-                className="w-full flex items-center justify-between p-4 text-left hover:bg-slate-50 transition-colors"
+                type="button"
+                onClick={() => setExpandedCategoria((prev) => (prev === categoria.id ? null : categoria.id))}
+                className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-slate-50/90"
                 style={{ borderLeft: `4px solid ${categoria.cor}` }}
               >
                 <div>
-                  <h3 className="font-medium text-slate-800">{categoria.nome}</h3>
-                  <p className="text-xs text-slate-500">{itens.length} {itens.length === 1 ? 'item' : 'itens'} nesta categoria</p>
+                  <h3 className="text-base font-semibold text-slate-900">{categoria.nome}</h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {itens.length} {itens.length === 1 ? "item" : "itens"} nesta categoria
+                  </p>
                 </div>
-                {expandedCategoria === categoria.id ? 
-                  <ChevronUp className="h-5 w-5 text-slate-400" /> : 
+                {expandedCategoria === categoria.id ? (
+                  <ChevronUp className="h-5 w-5 text-slate-400" />
+                ) : (
                   <ChevronDown className="h-5 w-5 text-slate-400" />
-                }
+                )}
               </button>
 
-              {/* Itens da Categoria */}
-              {expandedCategoria === categoria.id && (
-                <div className="divide-y divide-slate-200 border-t border-slate-200">
-                  {itens.map(item => (
-                    <div key={item.id} className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4 items-center">
-                      <div className="col-span-2 md:col-span-2">
-                        <p className="font-medium text-slate-800">{item.produtos?.nome}</p>
-                        <p className="text-xs text-slate-500">Local: {item.localizacao || 'N/D'}</p>
+              {expandedCategoria === categoria.id ? (
+                <div className="divide-y divide-slate-200/80 border-t border-slate-200/70 bg-white/70">
+                  {itens.map((item) => (
+                    <div key={item.id} className="grid gap-4 px-5 py-4 md:grid-cols-[1.5fr_0.8fr_0.8fr] md:items-center">
+                      <div>
+                        <p className="font-medium text-slate-900">{item.produtos?.nome}</p>
+                        <p className="mt-1 text-sm text-slate-500">Local: {item.localizacao || "N/D"}</p>
                       </div>
-                      <div className="text-right md:text-left">
-                        <p className="text-lg font-bold text-slate-800">
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm text-slate-500">
+                        Quantidade
+                        <div className="mt-1 text-lg font-semibold text-slate-900">
                           {item.quantidade_atual}
-                          <span className="text-sm font-normal text-slate-500 ml-1">{item.produtos?.unidade}</span>
-                        </p>
+                          <span className="ml-1 text-sm font-normal text-slate-500">{item.produtos?.unidade}</span>
+                        </div>
                       </div>
-                      <div className="text-right md:text-left">
-                        {/* Espaço reservado para botões de "Retirar" ou "Ajustar" no futuro */}
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm text-slate-500">
+                        Categoria
+                        <div className="mt-1 font-semibold text-slate-900">{categoria.nome}</div>
                       </div>
                     </div>
                   ))}
                 </div>
-              )}
-            </div>
+              ) : null}
+            </Surface>
           ))
         )}
       </div>
