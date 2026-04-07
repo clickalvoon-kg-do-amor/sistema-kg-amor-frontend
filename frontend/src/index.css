@@ -128,6 +128,11 @@
     box-shadow: var(--app-shadow);
   }
 
+  .app-hero > * {
+    position: relative;
+    z-index: 1;
+  }
+
   .app-hero::before {
     content: "";
     position: absolute;
@@ -137,6 +142,7 @@
     height: 220px;
     border-radius: 999px;
     background: radial-gradient(circle, rgba(14, 165, 233, 0.18) 0%, rgba(14, 165, 233, 0) 72%);
+    pointer-events: none;
   }
 
   .app-hero::after {
@@ -147,6 +153,7 @@
     height: 180px;
     border-radius: 999px;
     background: radial-gradient(circle, rgba(16, 185, 129, 0.16) 0%, rgba(16, 185, 129, 0) 70%);
+    pointer-events: none;
   }
 
   .app-actions {

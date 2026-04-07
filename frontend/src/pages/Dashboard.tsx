@@ -60,18 +60,22 @@ const getNetworkColor = (value?: string | null) => NETWORK_COLORS[(value || "").
 
 function RankingBox({ title, data, suffix = "" }: RankingBoxProps) {
   return (
-    <Surface title={title} className="h-full" bodyClassName="space-y-2">
+    <Surface
+      title={title}
+      className="h-full"
+      bodyClassName="space-y-1.5 px-4 py-4 lg:px-5 lg:py-5"
+    >
       {data.length === 0 ? (
         <p className="text-sm text-slate-400">Nenhum dado encontrado para os filtros selecionados.</p>
       ) : (
-        <ol className="space-y-2 text-sm text-slate-600">
+        <ol className="space-y-1.5 text-sm text-slate-600">
           {data.map(([nome, total], index) => (
             <li
               key={`${nome}-${index}`}
-              className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 px-3 py-2.5"
+              className="flex items-center justify-between gap-3 rounded-[18px] border border-slate-100 bg-slate-50/80 px-3 py-2"
             >
               <div className="flex min-w-0 flex-1 items-center gap-3">
-                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-bold text-slate-700 shadow-sm">
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white text-xs font-bold text-slate-700 shadow-sm">
                   {index + 1}
                 </span>
                 <span className="truncate font-medium text-slate-700">{nome}</span>
@@ -461,15 +465,25 @@ export default function Dashboard() {
             <p className="text-sm text-slate-400">Nenhum ranking disponivel para o filtro atual.</p>
           ) : (
             <>
-              <div className="flex h-64 items-end justify-between gap-2 overflow-x-auto rounded-[22px] bg-slate-50/90 px-4 pb-4 pt-6">
-                {topSupervisao.map(([nome, kg], index) => {
+              <div className="rounded-[22px] bg-slate-50/90 px-4 pb-4 pt-4">
+                <div className="overflow-x-auto pb-1">
+                  <div className="flex min-w-max items-end justify-between gap-2 pt-14">
+                    {topSupervisao.map(([nome, kg], index) => {
                   const height = topSupervisaoMax > 0 ? Math.max((kg / topSupervisaoMax) * 180, 18) : 18;
                   const color = supervisaoColors.get(nome.toUpperCase()) || "#64748b";
                   const isLight = color === "#E2E8F0";
+                  const tooltipPositionClass =
+                    index <= 1
+                      ? "left-0 translate-x-0 text-left"
+                      : index >= topSupervisao.length - 2
+                        ? "left-auto right-0 translate-x-0 text-left"
+                        : "left-1/2 -translate-x-1/2 text-left";
 
                   return (
                     <div key={nome} className="group relative flex min-w-[44px] flex-col items-center justify-end gap-2">
-                      <div className="absolute bottom-full mb-3 hidden rounded-2xl bg-slate-900 px-3 py-2 text-xs text-white shadow-lg group-hover:block">
+                      <div
+                        className={`pointer-events-none absolute top-0 z-10 hidden max-w-[160px] rounded-2xl bg-slate-900 px-3 py-2 text-xs leading-4 text-white shadow-lg group-hover:block ${tooltipPositionClass}`}
+                      >
                         <div className="font-medium">{nome}</div>
                         <div>{formatPt(kg)} kg</div>
                       </div>
@@ -485,6 +499,8 @@ export default function Dashboard() {
                     </div>
                   );
                 })}
+                  </div>
+                </div>
               </div>
               <div className="mt-4 text-xs text-slate-500">
                 Passe o cursor sobre as barras para visualizar o nome da supervisao e o total em kg.

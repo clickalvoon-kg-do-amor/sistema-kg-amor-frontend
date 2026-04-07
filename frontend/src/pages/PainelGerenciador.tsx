@@ -37,6 +37,16 @@ interface ItemEstoque {
     nome: string;
   } | null;
 }
+
+interface RecebimentoComItens {
+  created_at: string;
+  receipt_items: ItemEstoque[];
+}
+
+interface RetiradaComItens {
+  created_at: string;
+  retirada_itens: ItemEstoque[];
+}
 // --- Fim das Interfaces ---
 
 // --- Componente RankingBox ATUALIZADO ---
@@ -50,10 +60,17 @@ const formatNum = (n: number) => {
 
 function RankingBox({ title, data }: { title: string, data: [string, number][] }) {
   return (
-    <Surface title={title} className="h-full" bodyClassName="space-y-2">
-      <ol className="text-sm text-slate-600 space-y-2">
+    <Surface
+      title={title}
+      className="h-full"
+      bodyClassName="space-y-1.5 px-4 py-4 text-sm text-slate-600 lg:px-5 lg:py-5"
+    >
+      <ol className="space-y-1.5">
         {data.map(([nome, total], i) => (
-          <li key={nome + i} className="flex justify-between items-center rounded-2xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
+          <li
+            key={nome + i}
+            className="flex items-center justify-between rounded-[18px] border border-slate-100 bg-slate-50/80 px-3 py-2"
+          >
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <span className="font-bold text-slate-800 flex-shrink-0">{i + 1}.</span>
               <span className="truncate">{nome}</span>
@@ -169,8 +186,8 @@ export default function PainelGerenciador() {
   const [loading, setLoading] = useState(true);
   const [celulas, setCelulas] = useState<Celula[]>([]);
   const [historico, setHistorico] = useState<Historico[]>([]);
-  const [itensEntrada, setItensEntrada] = useState<ItemEstoque[]>([]); // <-- NOVO
-  const [itensSaida, setItensSaida] = useState<ItemEstoque[]>([]); // <-- NOVO
+  const [recebimentos, setRecebimentos] = useState<RecebimentoComItens[]>([]);
+  const [retiradas, setRetiradas] = useState<RetiradaComItens[]>([]);
   const [redeSelecionada, setRedeSelecionada] = useState<string | null>(null);
   const [celulasNaoEntregues, setCelulasNaoEntregues] = useState<Celula[]>([]);
 
@@ -216,21 +233,32 @@ export default function PainelGerenciador() {
         if (historicoError) throw historicoError;
         setHistorico(historicoData || []);
 
-        // --- NOVOS FETCHES ---
-        // Pega todos os itens de entrada
         const { data: entradaData, error: entradaError } = await supabase
-          .from('receipt_items')
-          .select('quantity, unit, produtos(nome)');
+          .from('receipts')
+          .select(`
+            created_at,
+            receipt_items (
+              quantity,
+              unit,
+              produtos (nome)
+            )
+          `)
+          .eq('status', 'posted');
         if (entradaError) throw entradaError;
-        setItensEntrada(entradaData as ItemEstoque[] || []);
+        setRecebimentos(entradaData as RecebimentoComItens[] || []);
 
-        // Pega todos os itens de saida
         const { data: saidaData, error: saidaError } = await supabase
-          .from('retirada_itens')
-          .select('quantity, unit, produtos(nome)');
+          .from('retiradas')
+          .select(`
+            created_at,
+            retirada_itens (
+              quantity,
+              unit,
+              produtos (nome)
+            )
+          `);
         if (saidaError) throw saidaError;
-        setItensSaida(saidaData as ItemEstoque[] || []);
-        // --- FIM DOS NOVOS FETCHES ---
+        setRetiradas(saidaData as RetiradaComItens[] || []);
 
       } catch (error: any) {
         console.error('Erro ao carregar dados do painel:', error);
@@ -299,23 +327,39 @@ export default function PainelGerenciador() {
     const redeStatsArray = Array.from(mapRedes.values());
     
     // --- LÓGICA DE RANKING ATUALIZADA (Request 1 e 2) ---
+    const dentroDoPeriodo = (dataReferencia?: string | null) => {
+      const dataLocal = formatLocalDate(dataReferencia || '');
+      if (!dataLocal) return false;
+      if (dataIni && dataLocal < dataIni) return false;
+      if (dataFim && dataLocal > dataFim) return false;
+      return true;
+    };
+
     const mapEntradas = new Map<string, number>();
-    itensEntrada.forEach(item => {
-      if (!item.produtos) return;
-      const key = `${item.produtos.nome} (${item.unit || 'un'})`;
-      const qtd = Number(item.quantity) || 0;
-      mapEntradas.set(key, (mapEntradas.get(key) || 0) + qtd);
+    recebimentos.forEach(recebimento => {
+      if (!dentroDoPeriodo(recebimento.created_at)) return;
+
+      (recebimento.receipt_items || []).forEach(item => {
+        if (!item.produtos) return;
+        const key = `${item.produtos.nome} (${item.unit || 'un'})`;
+        const qtd = Number(item.quantity) || 0;
+        mapEntradas.set(key, (mapEntradas.get(key) || 0) + qtd);
+      });
     });
     const rankingEntradas = Array.from(mapEntradas.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 15);
 
     const mapSaidas = new Map<string, number>();
-    itensSaida.forEach(item => {
-      if (!item.produtos) return;
-      const key = `${item.produtos.nome} (${item.unit || 'un'})`;
-      const qtd = Number(item.quantity) || 0;
-      mapSaidas.set(key, (mapSaidas.get(key) || 0) + qtd);
+    retiradas.forEach(retirada => {
+      if (!dentroDoPeriodo(retirada.created_at)) return;
+
+      (retirada.retirada_itens || []).forEach(item => {
+        if (!item.produtos) return;
+        const key = `${item.produtos.nome} (${item.unit || 'un'})`;
+        const qtd = Number(item.quantity) || 0;
+        mapSaidas.set(key, (mapSaidas.get(key) || 0) + qtd);
+      });
     });
     const rankingSaidas = Array.from(mapSaidas.entries())
       .sort((a, b) => b[1] - a[1])
@@ -338,7 +382,7 @@ export default function PainelGerenciador() {
       ],
       redeStats: redeStatsArray
     };
-  }, [celulas, celulasAtivasIds, itensEntrada, itensSaida]); // <-- Dependências atualizadas
+  }, [celulas, celulasAtivasIds, recebimentos, retiradas, dataIni, dataFim]);
 
   // --- FUNÇÃO DE EXPORTAR ATUALIZADA ---
   const handleExportExcel = () => {
@@ -628,6 +672,7 @@ export default function PainelGerenciador() {
               className="sm:min-w-[172px]"
             />
             <button
+              type="button"
               onClick={handleGerarRelatorioEstrategico}
               className="button-base button-primary"
               title="Relatorio completo por Rede, Supervisao e Lideres"
@@ -636,6 +681,7 @@ export default function PainelGerenciador() {
               Relatorio Estrategico
             </button>
             <button
+              type="button"
               onClick={handleExportExcel}
               className="button-base button-secondary"
               title="Exportar base de celulas para Excel"
