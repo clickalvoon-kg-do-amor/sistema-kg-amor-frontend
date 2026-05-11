@@ -35,9 +35,6 @@ jobs:
       - name: Build do projeto
         working-directory: frontend
         run: npm run build
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       # --- ESTA É A CORREÇÃO! ---
       - name: Criar cópia 404.html para rotas do React
