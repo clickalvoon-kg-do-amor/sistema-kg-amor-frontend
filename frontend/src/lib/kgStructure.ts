@@ -84,14 +84,14 @@ type RawRede = {
   id: string;
   cor: string;
   descricao?: string | null;
-  ativa: boolean;
+  ativo: boolean;
 };
 
 type RawSupervisao = {
   id: string;
   nome: string;
   rede_id: string;
-  ativa: boolean;
+  ativo: boolean;
 };
 
 type RawCelula = {
@@ -103,7 +103,7 @@ type RawCelula = {
   endereco?: string | null;
   telefone?: string | null;
   observacoes?: string | null;
-  ativa: boolean;
+  ativo: boolean;
   quantidade_kg: number | null;
   quantidade_itens: number | null;
   created_at?: string;
