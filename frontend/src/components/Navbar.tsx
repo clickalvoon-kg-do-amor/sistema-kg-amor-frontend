@@ -9,8 +9,8 @@ type Props = {
 
 export default function Navbar({ user, onLogout, sidebarOpen, onToggleSidebar }: Props) {
   return (
-    <header className="sticky top-0 z-40 border-b border-white/60 bg-[rgba(248,250,252,0.78)] backdrop-blur-xl">
-      <div className="mx-auto flex h-[72px] w-full max-w-[1600px] items-center justify-between gap-4 px-3 sm:px-4 lg:px-6">
+    <header className="sticky top-0 z-40 border-b border-white/70 bg-white/80 backdrop-blur">
+      <div className="mx-auto flex h-16 w-full max-w-[1600px] items-center justify-between gap-4 px-3 sm:px-4 lg:px-6">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -21,10 +21,7 @@ export default function Navbar({ user, onLogout, sidebarOpen, onToggleSidebar }:
             {sidebarOpen ? <PanelLeftClose className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
           <div className="flex items-center gap-3">
-            <span
-              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl text-sm font-extrabold tracking-[0.18em] text-white shadow-lg"
-              style={{ background: "var(--brand-gradient)" }}
-            >
+            <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-900 text-sm font-bold tracking-[0.18em] text-white shadow-lg shadow-slate-900/15">
               KG
             </span>
             <div>
@@ -34,11 +31,11 @@ export default function Navbar({ user, onLogout, sidebarOpen, onToggleSidebar }:
                 </h1>
                 <span className="pill hidden sm:inline-flex">
                   <ShieldCheck className="h-3.5 w-3.5" />
-                  Base 360
+                  Operação
                 </span>
               </div>
               <p className="hidden text-xs text-slate-500 sm:block">
-                Estrutura sincronizada com o 360 e operacao dedicada do KG.
+                Controle de recebimentos, estoque e gestão operacional.
               </p>
             </div>
           </div>

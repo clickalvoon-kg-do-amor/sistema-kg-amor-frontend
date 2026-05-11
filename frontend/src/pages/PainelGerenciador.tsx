@@ -1,7 +1,6 @@
 // frontend/src/pages/PainelGerenciador.tsx
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { fetchKgStructure, type KgCelulaDisplay } from '../lib/kgStructure';
 import { Users, TrendingUp, TrendingDown, Download, FileText } from 'lucide-react';
 import toast from 'react-hot-toast'; 
 import * as XLSX from 'xlsx'; 
@@ -9,10 +8,22 @@ import { formatLocalDate, toUtcISOStringFromLocalDate } from '../utils/date';
 import { PageHeader, StatCard, Surface } from '../components/ui';
 
 // --- Interfaces Atualizadas ---
-type Celula = KgCelulaDisplay;
+interface Celula {
+  id: number;
+  nome: string;
+  lider: string;
+  supervisores: string;
+  quantidade_kg: number;
+  quantidade_itens: number;
+  redes: { 
+    id: number;
+    cor: string;
+    hex: string;
+  } | null;
+}
 
 interface Historico {
-  celula_id: string;
+  celula_id: number;
   data_chegada: string;
   quantidade: number | null;
   quantidade_itens: number | null;
@@ -200,62 +211,52 @@ export default function PainelGerenciador() {
           toUtcISOStringFromLocalDate(value, endOfDay);
         const inicio = parseISODate(dataIni);
         const fim = parseISODate(dataFim, true);
-        const [
-          estrutura,
-          historicoResult,
-          entradaResult,
-          saidaResult,
-        ] = await Promise.all([
-          fetchKgStructure(),
-          (() => {
-            let historicoQuery = supabase
-              .from('historico_kg')
-              .select('celula_id, data_chegada, quantidade, quantidade_itens');
-            if (inicio) {
-              historicoQuery = historicoQuery.gte('data_chegada', inicio);
-            }
-            if (fim) {
-              historicoQuery = historicoQuery.lte('data_chegada', fim);
-            }
-            return historicoQuery;
-          })(),
-          supabase
-            .from('receipts')
-            .select(`
-              created_at,
-              receipt_items (
-                quantity,
-                unit,
-                produtos (nome)
-              )
-            `)
-            .eq('status', 'posted'),
-          supabase
-            .from('retiradas')
-            .select(`
-              created_at,
-              retirada_itens (
-                quantity,
-                unit,
-                produtos (nome)
-              )
-            `),
-        ]);
-
-        const celulasData = estrutura.celulas;
-        const celulasError = null;
+        // Pega todas as células ativas (para a base geral)
+        const { data: celulasData, error: celulasError } = await supabase
+          .from('celulas')
+          .select('id, nome, lider, supervisores, quantidade_kg, quantidade_itens, redes(id, cor, hex)') 
+          .eq('ativo', true);
         if (celulasError) throw celulasError;
         setCelulas(celulasData as Celula[] || []);
 
-        const { data: historicoData, error: historicoError } = historicoResult;
+        // Pega todo o histórico (para ver quem entregou)
+        let historicoQuery = supabase
+          .from('historico_kg')
+          .select('celula_id, data_chegada, quantidade, quantidade_itens');
+        if (inicio) {
+          historicoQuery = historicoQuery.gte('data_chegada', inicio);
+        }
+        if (fim) {
+          historicoQuery = historicoQuery.lte('data_chegada', fim);
+        }
+        const { data: historicoData, error: historicoError } = await historicoQuery;
         if (historicoError) throw historicoError;
         setHistorico(historicoData || []);
 
-        const { data: entradaData, error: entradaError } = entradaResult;
+        const { data: entradaData, error: entradaError } = await supabase
+          .from('receipts')
+          .select(`
+            created_at,
+            receipt_items (
+              quantity,
+              unit,
+              produtos (nome)
+            )
+          `)
+          .eq('status', 'posted');
         if (entradaError) throw entradaError;
         setRecebimentos(entradaData as RecebimentoComItens[] || []);
 
-        const { data: saidaData, error: saidaError } = saidaResult;
+        const { data: saidaData, error: saidaError } = await supabase
+          .from('retiradas')
+          .select(`
+            created_at,
+            retirada_itens (
+              quantity,
+              unit,
+              produtos (nome)
+            )
+          `);
         if (saidaError) throw saidaError;
         setRetiradas(saidaData as RetiradaComItens[] || []);
 
@@ -271,7 +272,7 @@ export default function PainelGerenciador() {
 
   // Lógica de atividade
   const celulasAtivasIds = useMemo(() => {
-    const ids = new Set<string>();
+    const ids = new Set<number>();
     const inicioDoPeriodo = dataIni ? new Date(`${dataIni}T00:00:00`) : null;
     const fimDoPeriodo = dataFim ? new Date(`${dataFim}T23:59:59.999`) : null;
 
@@ -428,7 +429,7 @@ export default function PainelGerenciador() {
         ? `${inicioLabel} a ${fimLabel}`
         : 'Geral (todos os registros disponíveis)';
 
-      const celulaMap = new Map(celulas.map(c => [c.id, c] as const));
+      const celulaMap = new Map(celulas.map(c => [c.id, c]));
       type ResumoEntrega = { kg: number; itens: number; entregas: number; ultimaEntrega: string | null };
       const entregasPorCelula = new Map<number, ResumoEntrega>();
 

@@ -62,40 +62,23 @@ export default function Sidebar({ isOpen, onClose }: Props) {
           isOpen ? "translate-x-0" : "-translate-x-[110%] lg:translate-x-0"
         )}
       >
-        <div className="flex h-full flex-col overflow-hidden rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,#0b1120_0%,#111827_100%)] p-3 text-white shadow-[0_28px_56px_-34px_rgba(15,23,42,0.52)] backdrop-blur">
-          <div className="relative overflow-hidden rounded-[26px] border border-white/10 bg-white/5 px-4 py-4 shadow-lg shadow-black/15">
-            <div
-              className="pointer-events-none absolute inset-x-4 top-0 h-1 rounded-full"
-              style={{ background: "var(--brand-gradient)" }}
-            />
-            <div className="flex items-center gap-3">
-              <span
-                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl text-sm font-extrabold tracking-[0.22em] text-white"
-                style={{ background: "var(--brand-gradient)" }}
-              >
-                KG
-              </span>
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-300">
-                  Sistema integrado
-                </div>
-                <div className="mt-1 text-base font-semibold tracking-tight text-white">
-                  KG do Amor
-                </div>
-              </div>
-            </div>
-            <div className="mt-4 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+        <div className="flex h-full flex-col rounded-[32px] border border-white/75 bg-white/90 p-3 shadow-[0_28px_56px_-34px_rgba(15,23,42,0.34)] backdrop-blur">
+          <div className="rounded-[24px] border border-slate-200/80 bg-slate-900 px-4 py-4 text-white shadow-lg shadow-slate-900/15">
+            <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-300">
               Navegacao
             </div>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              Mesma base visual e estrutural do 360 para a operacao mensal do KG.
+            <div className="mt-2 text-lg font-semibold tracking-tight">
+              Operacao do sistema
+            </div>
+            <p className="mt-1 text-sm text-slate-300">
+              Acesso rapido as rotinas, controles e analises.
             </p>
           </div>
 
           <nav className="mt-4 flex-1 space-y-5 overflow-y-auto px-1 pb-2">
             {sections.map((section) => (
               <div key={section.label}>
-                <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
                   {section.label}
                 </div>
                 <div className="space-y-1">

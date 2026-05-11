@@ -1,416 +1,371 @@
-import React, { useEffect, useMemo, useState } from "react";
-import {
-  Box,
-  Edit2,
-  EyeOff,
-  Filter,
-  Palette,
-  Plus,
-  Save,
-  Search,
-  Trash2,
-  UserCheck,
-  Users,
-  Weight,
-  X,
-} from "lucide-react";
-import { supabase } from "../lib/supabaseClient";
-import {
-  fetchKgStructure,
-  type KgCelulaDisplay,
-  type KgRede,
-  type KgSupervisao,
-} from "../lib/kgStructure";
-import { formatLocalDate, toUtcISOStringFromLocalDate } from "../utils/date";
-import { PageHeader, StatCard } from "../components/ui";
+// frontend/src/pages/Celulas.tsx
+import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, Edit2, Save, X, Users, UserCheck, Palette, Weight, Trash2, Calendar, EyeOff, Box, Search, Filter } from 'lucide-react';
+import { supabase } from '../lib/supabaseClient';
+import { formatLocalDate, toUtcISOStringFromLocalDate } from '../utils/date';
+import { PageHeader, StatCard } from '../components/ui';
 
-function Toast({
-  message,
-  onClose,
-  isError = false,
-}: {
-  message: string;
-  onClose: () => void;
-  isError?: boolean;
-}) {
+// --- COMPONENTE DE TOAST ---
+function Toast({ message, onClose, isError = false }: { message: string, onClose: () => void, isError?: boolean }) {
   useEffect(() => {
-    const timer = setTimeout(onClose, 4000);
+    const timer = setTimeout(() => {
+      onClose();
+    }, 4000); 
     return () => clearTimeout(timer);
   }, [onClose]);
 
+  const bgColor = isError ? 'bg-red-600' : 'bg-green-600';
   return (
-    <div
-      className={`fixed right-5 top-5 z-[100] rounded-lg px-6 py-3 text-white shadow-lg ${
-        isError ? "bg-red-600" : "bg-green-600"
-      }`}
-    >
+    <div className={`fixed top-5 right-5 ${bgColor} text-white px-6 py-3 rounded-lg shadow-lg z-[100]`}>
       {message}
     </div>
   );
 }
 
-type FormData = {
+interface Rede {
+  id: number;
+  cor: string;
+  hex: string;
+  descricao?: string;
+  ativo: boolean;
+}
+interface Celula {
+  id: number;
   nome: string;
-  lideres: string;
-  supervisao_id: string;
+  lider: string;
+  supervisores: string;
+  rede_id: number;
+  telefone?: string;
+  endereco?: string;
+  quantidade_kg: number;
+  quantidade_itens: number;
+  ativo: boolean;
+  criado_em?: string;
+  redes?: Rede;
+}
+interface FormData {
+  nome: string;
+  lider: string;
+  supervisores: string;
+  rede_id: string;
   telefone: string;
   endereco: string;
   quantidade_kg: number;
   quantidade_itens: number;
-};
+}
 
-const EMPTY_FORM: FormData = {
-  nome: "",
-  lideres: "",
-  supervisao_id: "",
-  telefone: "",
-  endereco: "",
-  quantidade_kg: 0,
-  quantidade_itens: 0,
-};
+const REDES_PADRAO = ['ALVO SJP', 'AMARELA', 'AZUL', 'BRANCA', 'MARROM', 'VERDE', 'VERMELHA', 'ROXA'];
 
 export default function CelulasPage() {
-  const [celulas, setCelulas] = useState<KgCelulaDisplay[]>([]);
-  const [redes, setRedes] = useState<KgRede[]>([]);
-  const [supervisoes, setSupervisoes] = useState<KgSupervisao[]>([]);
+  const [celulas, setCelulas] = useState<Celula[]>([]);
+  const [redes, setRedes] = useState<Rede[]>([]);
   const [loading, setLoading] = useState(true);
-
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterRede, setFilterRede] = useState("Todas");
-  const [filterSupervisor, setFilterSupervisor] = useState("Todos");
+  
+  // --- NOVOS ESTADOS DE FILTRO ---
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterRede, setFilterRede] = useState('Todas');
+  const [filterSupervisor, setFilterSupervisor] = useState('Todos');
   const [ocultarZeradas, setOcultarZeradas] = useState(false);
+  // ------------------------------
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isRecebimentoModalOpen, setIsRecebimentoModalOpen] = useState(false);
-  const [editingCelula, setEditingCelula] = useState<KgCelulaDisplay | null>(null);
-  const [selectedCelulaRecebimento, setSelectedCelulaRecebimento] = useState<KgCelulaDisplay | null>(null);
-
-  const [recebimentoKG, setRecebimentoKG] = useState("0");
-  const [recebimentoItens, setRecebimentoItens] = useState("1");
+  const [editingCelula, setEditingCelula] = useState<Celula | null>(null);
+  const [selectedCelulaRecebimento, setSelectedCelulaRecebimento] = useState<Celula | null>(null);
+  
+  const [recebimentoKG, setRecebimentoKG] = useState<string>('0');
+  const [recebimentoItens, setRecebimentoItens] = useState<string>('1');
   const [dataChegada, setDataChegada] = useState(formatLocalDate());
-  const [observacao, setObservacao] = useState("");
+  const [observacao, setObservacao] = useState('');
 
-  const [toastMessage, setToastMessage] = useState("");
+  const [toastMessage, setToastMessage] = useState('');
   const [isToastError, setIsToastError] = useState(false);
-  const [formData, setFormData] = useState<FormData>(EMPTY_FORM);
 
-  const showToast = (message: string, isError = false) => {
+  const [formData, setFormData] = useState<FormData>({
+    nome: '', lider: '', supervisores: '', rede_id: '', telefone: '', endereco: '', quantidade_kg: 0, quantidade_itens: 0
+  });
+
+  const showToast = (message: string, isError: boolean = false) => {
     setToastMessage(message);
     setIsToastError(isError);
   };
 
-  const supervisaoMap = useMemo(
-    () => new Map(supervisoes.map((supervisao) => [supervisao.id, supervisao])),
-    [supervisoes]
-  );
-
-  const supervisoesOrdenadas = useMemo(() => {
-    return [...supervisoes].sort((a, b) => {
-      const redeA = redes.find((rede) => rede.id === a.rede_id)?.cor || "";
-      const redeB = redes.find((rede) => rede.id === b.rede_id)?.cor || "";
-      return `${redeA} ${a.nome}`.localeCompare(`${redeB} ${b.nome}`, "pt-BR");
-    });
-  }, [redes, supervisoes]);
-
   useEffect(() => {
-    void carregarDados();
+    carregarDados();
   }, []);
 
   const carregarDados = async () => {
     try {
       setLoading(true);
-      const estrutura = await fetchKgStructure();
-      setRedes(estrutura.redes);
-      setSupervisoes(estrutura.supervisoes);
-      setCelulas(estrutura.celulas);
+      const { data: redesData, error: redesError } = await supabase
+        .from('redes').select('*').eq('ativo', true).order('cor');
+      if (redesError) throw redesError;
+      setRedes(redesData || []);
+      
+      const { data: celulasData, error: celulasError } = await supabase
+        .from('celulas')
+        .select(`*, redes (id, cor, hex)`)
+        .eq('ativo', true)
+        .order('nome');
+      if (celulasError) throw celulasError;
+      setCelulas(celulasData || []);
     } catch (error: any) {
-      console.error("Erro ao carregar dados:", error);
-      showToast("Erro ao carregar dados: " + error.message, true);
+      console.error('Erro ao carregar dados:', error);
+      showToast('Erro ao carregar dados: ' + error.message, true);
     } finally {
       setLoading(false);
     }
   };
 
+  // --- LISTA DE SUPERVISORES ÚNICOS PARA O FILTRO ---
   const uniqueSupervisors = useMemo(() => {
     const supervisors = new Set<string>();
-    celulas.forEach((celula) => supervisors.add(celula.supervisores.toUpperCase()));
-    return ["Todos", ...Array.from(supervisors).sort()];
+    celulas.forEach(c => {
+      if (c.supervisores) supervisors.add(c.supervisores.toUpperCase());
+    });
+    return ['Todos', ...Array.from(supervisors).sort()];
   }, [celulas]);
 
+  // --- LISTA DE REDES PARA O FILTRO (Nomes) ---
   const uniqueRedes = useMemo(() => {
-    const redesSet = new Set<string>();
-    redes.forEach((rede) => redesSet.add(rede.cor.toUpperCase()));
-    celulas.forEach((celula) => {
-      if (celula.redes?.cor) redesSet.add(celula.redes.cor.toUpperCase());
+    const redesSet = new Set<string>(REDES_PADRAO);
+    celulas.forEach(c => {
+      if (c.redes?.cor) redesSet.add(c.redes.cor.toUpperCase());
     });
-    return ["Todas", ...Array.from(redesSet).sort()];
-  }, [celulas, redes]);
+    return ['Todas', ...Array.from(redesSet).sort()];
+  }, [celulas]);
 
+
+  // --- LÓGICA DE FILTRAGEM PODEROSA ---
   const celulasVisiveis = useMemo(() => {
-    return celulas.filter((celula) => {
+    return celulas.filter(c => {
+      // 1. Filtro por Texto (Nome ou Líder)
       const searchLower = searchTerm.toLowerCase();
-      const matchesSearch =
-        celula.nome.toLowerCase().includes(searchLower) ||
-        celula.lideres.toLowerCase().includes(searchLower);
+      const matchesSearch = 
+        c.nome.toLowerCase().includes(searchLower) || 
+        c.lider.toLowerCase().includes(searchLower);
 
-      const matchesRede =
-        filterRede === "Todas" || celula.redes?.cor?.toUpperCase() === filterRede;
+      // 2. Filtro por Rede
+      const matchesRede = filterRede === 'Todas' || c.redes?.cor?.toUpperCase() === filterRede;
 
-      const matchesSupervisor =
-        filterSupervisor === "Todos" ||
-        celula.supervisores.toUpperCase() === filterSupervisor;
+      // 3. Filtro por Supervisor
+      const matchesSupervisor = filterSupervisor === 'Todos' || c.supervisores.toUpperCase() === filterSupervisor;
 
-      const matchesZeradas =
-        !ocultarZeradas ||
-        celula.quantidade_kg > 0 ||
-        celula.quantidade_itens > 0;
+      // 4. Filtro Ocultar Zeradas
+      const matchesZeradas = !ocultarZeradas || (c.quantidade_kg > 0 || c.quantidade_itens > 0);
 
       return matchesSearch && matchesRede && matchesSupervisor && matchesZeradas;
     });
-  }, [celulas, filterRede, filterSupervisor, ocultarZeradas, searchTerm]);
-
+  }, [celulas, searchTerm, filterRede, filterSupervisor, ocultarZeradas]);
+  
   const totalKG = useMemo(
     () => celulas.reduce((total, celula) => total + Number(celula.quantidade_kg || 0), 0),
     [celulas]
   );
-
   const totalItens = useMemo(
     () => celulas.reduce((total, celula) => total + Number(celula.quantidade_itens || 0), 0),
     [celulas]
   );
 
-  const handleInputChange = (
-    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
-  ) => {
-    const { name, value } = event.target;
-    setFormData((prev) => ({
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
       ...prev,
-      [name]:
-        name === "quantidade_kg"
-          ? parseFloat(value) || 0
-          : name === "quantidade_itens"
-            ? parseInt(value, 10) || 0
-            : value,
+      [name]: name === 'quantidade_kg' ? parseFloat(value) || 0 :
+              name === 'quantidade_itens' ? parseInt(value) || 0 : value
     }));
   };
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-
-    if (!formData.supervisao_id) {
-      showToast("Selecione uma supervisão.", true);
-      return;
-    }
-
+  // --- FUNÇÃO DE SALVAR (handleSubmit) ATUALIZADA COM A LÓGICA INTELIGENTE ---
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
       const dadosParaSalvar = {
         nome: formData.nome,
-        lideres: formData.lideres,
-        supervisao_id: formData.supervisao_id,
+        lider: formData.lider,
+        supervisores: formData.supervisores,
+        rede_id: parseInt(formData.rede_id),
         telefone: formData.telefone || null,
         endereco: formData.endereco || null,
         quantidade_kg: formData.quantidade_kg,
         quantidade_itens: formData.quantidade_itens,
-        ativo: true,
+        ativo: true
       };
 
       if (editingCelula) {
-        const kgMudou =
-          Number(editingCelula.quantidade_kg).toFixed(2) !==
-          Number(formData.quantidade_kg).toFixed(2);
-        const itensMudou =
-          Number(editingCelula.quantidade_itens) !== Number(formData.quantidade_itens);
+        // --- CORREÇÃO: COMPARAÇÃO INTELIGENTE ---
+        // Compara com toFixed(2) para evitar problemas de arredondamento e garantir que só salve histórico se REALMENTE mudou
+        const kgMudou = Number(editingCelula.quantidade_kg).toFixed(2) !== Number(formData.quantidade_kg).toFixed(2);
+        const itensMudou = Number(editingCelula.quantidade_itens) !== Number(formData.quantidade_itens);
 
-        if (kgMudou || itensMudou) {
+        if (kgMudou || itensMudou) { 
+          // O valor mudou? SIM -> Então atualiza TUDO (Histórico + Célula)
+          
+          // 1. Apaga histórico antigo
           const { error: deleteError } = await supabase
-            .from("historico_kg")
-            .delete()
-            .eq("celula_id", editingCelula.id);
+            .from('historico_kg').delete().eq('celula_id', editingCelula.id);
           if (deleteError) throw new Error("Falha ao limpar histórico: " + deleteError.message);
 
-          const { error: insertError } = await supabase.from("historico_kg").insert([
-            {
+          // 2. Cria novo histórico com o saldo novo
+          const { error: insertError } = await supabase
+            .from('historico_kg').insert([{
               celula_id: editingCelula.id,
               quantidade: formData.quantidade_kg,
               quantidade_itens: formData.quantidade_itens,
-              data_chegada: new Date().toISOString(),
-              observacoes: `Ajuste manual de saldo: ${formData.quantidade_kg} kg e ${formData.quantidade_itens} itens.`,
-            },
-          ]);
-          if (insertError) {
-            throw new Error("Falha ao inserir novo histórico: " + insertError.message);
-          }
+              data_chegada: new Date().toISOString(), // Atualiza a data
+              observacoes: `Ajuste manual de saldo: ${formData.quantidade_kg} kg e ${formData.quantidade_itens} itens.`
+            }]);
+          if (insertError) throw new Error("Falha ao inserir novo histórico: " + insertError.message);
 
+          // 3. Atualiza a célula
           const { error: updateError } = await supabase
-            .from("kg_celulas")
-            .update(dadosParaSalvar)
-            .eq("id", editingCelula.id);
+            .from('celulas').update(dadosParaSalvar).eq('id', editingCelula.id);
           if (updateError) throw updateError;
+          
+          showToast('Saldo ajustado e histórico atualizado!');
 
-          showToast("Saldo ajustado e histórico atualizado!");
         } else {
+          // O valor mudou? NÃO -> Então atualiza SÓ os dados cadastrais (Nome, Líder, Rede)
+          // NÃO toca na data, NÃO toca no histórico
+          
           const { error } = await supabase
-            .from("kg_celulas")
+            .from('celulas')
             .update({
-              nome: formData.nome,
-              lideres: formData.lideres,
-              supervisao_id: formData.supervisao_id,
-              telefone: formData.telefone || null,
-              endereco: formData.endereco || null,
+                // Atualiza tudo MENOS as quantidades (para garantir que não sobrescreva com arredondamento)
+                nome: formData.nome,
+                lider: formData.lider,
+                supervisores: formData.supervisores,
+                rede_id: parseInt(formData.rede_id),
+                telefone: formData.telefone,
+                endereco: formData.endereco
             })
-            .eq("id", editingCelula.id);
+            .eq('id', editingCelula.id);
 
           if (error) throw error;
-          showToast("Dados cadastrais atualizados!");
+          showToast('Dados cadastrais atualizados (Saldo mantido)!');
         }
+
       } else {
-        const { error } = await supabase.from("kg_celulas").insert([dadosParaSalvar]);
+        // Criar nova célula
+        const { error } = await supabase
+          .from('celulas').insert([dadosParaSalvar]);
         if (error) throw error;
-        showToast("Célula criada com sucesso!");
+        showToast('Célula criada com sucesso!');
       }
 
       await carregarDados();
       handleCloseModal();
     } catch (error: any) {
-      console.error("Erro ao salvar célula:", error);
-      showToast("Erro ao salvar célula: " + error.message, true);
+      console.error('Erro ao salvar célula:', error);
+      showToast('Erro ao salvar célula: ' + error.message, true);
     }
   };
 
-  const handleEdit = (celula: KgCelulaDisplay) => {
+  const handleEdit = (celula: Celula) => {
     setFormData({
-      nome: celula.nome,
-      lideres: celula.lideres,
-      supervisao_id: celula.supervisao_id,
-      telefone: celula.telefone || "",
-      endereco: celula.endereco || "",
-      quantidade_kg: celula.quantidade_kg,
-      quantidade_itens: celula.quantidade_itens,
+      nome: celula.nome, lider: celula.lider, supervisores: celula.supervisores,
+      rede_id: celula.rede_id.toString(), telefone: celula.telefone || '',
+      endereco: celula.endereco || '', quantidade_kg: celula.quantidade_kg, quantidade_itens: celula.quantidade_itens
     });
     setEditingCelula(celula);
     setIsModalOpen(true);
   };
 
-  const handleDelete = async (celulaId: string) => {
-    if (!window.confirm("Tem certeza que deseja excluir esta célula?")) return;
-
-    try {
-      await supabase.from("historico_kg").delete().eq("celula_id", celulaId);
-      const { error } = await supabase.from("kg_celulas").update({ ativo: false }).eq("id", celulaId);
-      if (error) throw error;
-
-      await carregarDados();
-      showToast("Célula excluída com sucesso!");
-    } catch (error: any) {
-      console.error("Erro ao excluir célula:", error);
-      showToast("Erro ao excluir célula: " + error.message, true);
+  const handleDelete = async (celulaId: number) => {
+    if (window.confirm('Tem certeza que deseja excluir esta célula?')) {
+      try {
+        await supabase.from('historico_kg').delete().eq('celula_id', celulaId);
+        const { error } = await supabase
+          .from('celulas').update({ ativo: false }).eq('id', celulaId);
+        if (error) throw error;
+        await carregarDados();
+        showToast('Célula excluída com sucesso!');
+      } catch (error: any) {
+        console.error('Erro ao excluir célula:', error);
+        showToast('Erro ao excluir célula: ' + error.message, true);
+      }
     }
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingCelula(null);
-    setFormData(EMPTY_FORM);
+    setFormData({
+      nome: '', lider: '', supervisores: '', rede_id: '',
+      telefone: '', endereco: '', quantidade_kg: 0, quantidade_itens: 0
+    });
   };
 
-  const handleRecebimentoSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!selectedCelulaRecebimento) {
-      showToast("Selecione uma célula!", true);
-      return;
-    }
-
+  const handleRecebimentoSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCelulaRecebimento) return showToast('Selecione uma célula!', true);
+    
     const kgRecebido = Number(recebimentoKG || 0);
-    const itensRecebidos = Number(recebimentoItens || 0);
-
-    if (kgRecebido <= 0 && itensRecebidos <= 0) {
-      showToast("Informe valores positivos.", true);
-      return;
-    }
+    const itensRecebidos = Number(recebimentoItens || 0); 
+    
+    if (kgRecebido <= 0 && itensRecebidos <= 0) return showToast('Informe valores positivos.', true);
 
     try {
-      const novaQuantidadeKG =
-        Number(selectedCelulaRecebimento.quantidade_kg) + kgRecebido;
-      const novaQuantidadeItens =
-        Number(selectedCelulaRecebimento.quantidade_itens) + itensRecebidos;
-
-      const { error: historicoError } = await supabase.from("historico_kg").insert([
-        {
+      const novaQuantidadeKG = Number(selectedCelulaRecebimento.quantidade_kg) + kgRecebido;
+      const novaQuantidadeItens = Number(selectedCelulaRecebimento.quantidade_itens) + itensRecebidos;
+      
+      const { error: historicoError } = await supabase
+        .from('historico_kg') 
+        .insert([{
           celula_id: selectedCelulaRecebimento.id,
           quantidade: kgRecebido,
-          quantidade_itens: itensRecebidos,
-          data_chegada:
-            toUtcISOStringFromLocalDate(dataChegada) || new Date().toISOString(),
-          observacoes: observacao || null,
-        },
-      ]);
-      if (historicoError) throw historicoError;
+          quantidade_itens: itensRecebidos, 
+          data_chegada: toUtcISOStringFromLocalDate(dataChegada) || new Date().toISOString(),
+          observacoes: observacao || null 
+        }]);
 
+      if (historicoError) throw historicoError;
+      
       const { error: celulaError } = await supabase
-        .from("kg_celulas")
-        .update({
+        .from('celulas')
+        .update({ 
           quantidade_kg: novaQuantidadeKG,
-          quantidade_itens: novaQuantidadeItens,
+          quantidade_itens: novaQuantidadeItens 
         })
-        .eq("id", selectedCelulaRecebimento.id);
-      if (celulaError) {
-        throw new Error("Erro ao atualizar saldo: " + celulaError.message);
-      }
+        .eq('id', selectedCelulaRecebimento.id);
+      
+      if (celulaError) throw new Error("Erro ao atualizar saldo: " + celulaError.message);
 
       await carregarDados();
-      showToast("Recebimento registrado com sucesso!");
+      showToast(`Recebimento registrado com sucesso!`);
       handleCloseRecebimentoModal();
+      
     } catch (error: any) {
-      console.error("Erro ao registrar recebimento:", error);
-      showToast("Erro ao salvar: " + error.message, true);
+      console.error('Erro ao registrar recebimento:', error);
+      showToast('Erro ao salvar: ' + error.message, true);
     }
   };
 
   const handleCloseRecebimentoModal = () => {
     setIsRecebimentoModalOpen(false);
     setSelectedCelulaRecebimento(null);
-    setRecebimentoKG("0");
-    setRecebimentoItens("1");
+    setRecebimentoKG('0');
+    setRecebimentoItens('1'); 
     setDataChegada(formatLocalDate());
-    setObservacao("");
+    setObservacao(''); 
   };
 
-  const handleRequestEdit = (celula: KgCelulaDisplay) => {
-    handleCloseRecebimentoModal();
-    handleEdit(celula);
+  const handleRequestEdit = (celula: Celula) => {
+    if (celula) {
+      handleCloseRecebimentoModal(); 
+      handleEdit(celula); 
+    }
   };
 
-  const getRedeInfo = (celula: KgCelulaDisplay) =>
-    celula.redes || { id: "", cor: "Indefinida", hex: "#6B7280", ativo: true };
-
-  const getSupervisaoLabel = (supervisao: KgSupervisao) => {
-    const rede = redes.find((item) => item.id === supervisao.rede_id);
-    return rede ? `${supervisao.nome} • ${rede.cor}` : supervisao.nome;
+  const getRedeInfo = (celula: Celula) => {
+    if (celula.redes) return celula.redes;
+    const rede = redes.find(r => r.id === celula.rede_id);
+    return rede || { cor: 'Indefinida', hex: '#6B7280' };
   };
-
-  if (loading) {
-    return (
-      <div className="grid min-h-[60vh] place-items-center">
-        <div className="app-surface flex min-w-[280px] flex-col items-center gap-4 px-8 py-10 text-center">
-          <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-slate-200 border-t-slate-900" />
-          <div>
-            <div className="text-base font-semibold text-slate-900">Carregando células</div>
-            <div className="mt-1 text-sm text-slate-500">Lendo a estrutura compartilhada do 360.</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
-      {toastMessage && (
-        <Toast
-          message={toastMessage}
-          onClose={() => setToastMessage("")}
-          isError={isToastError}
-        />
-      )}
+      {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage('')} isError={isToastError} />}
 
       <PageHeader
         eyebrow="Gestao de celulas"
@@ -429,7 +384,11 @@ export default function CelulasPage() {
               <Plus size={18} />
               Adicionar Recebimento
             </button>
-            <button type="button" onClick={() => setIsModalOpen(true)} className="button-base button-primary">
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(true)}
+              className="button-base button-primary"
+            >
               <Plus size={18} />
               Nova Celula
             </button>
@@ -437,114 +396,99 @@ export default function CelulasPage() {
         }
       />
 
+      {/* --- BARRA DE FILTROS --- */}
       <div className="toolbar-surface flex flex-wrap items-center gap-3">
-        <div className="mr-2 flex items-center gap-2 font-medium text-slate-500">
+        <div className="flex items-center gap-2 text-slate-500 font-medium mr-2">
           <Filter size={20} />
           Filtros:
         </div>
-
-        <div className="relative max-w-md flex-grow">
-          <Search
-            className="absolute left-3 top-1/2 -translate-y-1/2 transform text-slate-400"
-            size={18}
-          />
-          <input
+        
+        {/* Busca por Texto */}
+        <div className="relative flex-grow max-w-md">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+          <input 
             type="text"
             placeholder="Buscar Célula ou Líder..."
             value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            className="w-full rounded-lg border border-slate-300 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
           />
         </div>
 
+        {/* Filtro de Rede */}
         <select
-          className="min-w-[150px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm min-w-[150px]"
           value={filterRede}
-          onChange={(event) => setFilterRede(event.target.value)}
+          onChange={(e) => setFilterRede(e.target.value)}
         >
-          {uniqueRedes.map((rede) => (
-            <option key={rede} value={rede}>
-              {rede === "Todas" ? "Todas as Redes" : rede}
-            </option>
-          ))}
+          {uniqueRedes.map((r) => (<option key={r} value={r}>{r === 'Todas' ? 'Todas as Redes' : r}</option>))}
         </select>
 
+        {/* Filtro de Supervisão */}
         <select
-          className="min-w-[150px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm min-w-[150px]"
           value={filterSupervisor}
-          onChange={(event) => setFilterSupervisor(event.target.value)}
+          onChange={(e) => setFilterSupervisor(e.target.value)}
         >
-          {uniqueSupervisors.map((supervisor) => (
-            <option key={supervisor} value={supervisor}>
-              {supervisor === "Todos" ? "Todas as Supervisões" : supervisor}
-            </option>
-          ))}
+          {uniqueSupervisors.map((s) => (<option key={s} value={s}>{s === 'Todos' ? 'Todas as Supervisões' : s}</option>))}
         </select>
       </div>
-
+      
+      {/* --- CARDS DE RESUMO --- */}
       <div className="stats-grid">
         <StatCard label="Total de celulas" value={celulasVisiveis.length} icon={<Users className="h-5 w-5" />} tone="blue" />
         <StatCard label="Total de KG" value={`${totalKG.toFixed(1)} kg`} icon={<Weight className="h-5 w-5" />} tone="green" />
         <StatCard label="Total de itens" value={totalItens} icon={<Box className="h-5 w-5" />} tone="violet" />
         <StatCard
           label="Media por celula"
-          value={`${celulas.length > 0 ? (totalKG / celulas.length).toFixed(1) : "0.0"} kg`}
+          value={`${celulas.length > 0 ? (totalKG / celulas.length).toFixed(1) : '0.0'} kg`}
           icon={<Weight className="h-5 w-5" />}
           tone="amber"
         />
       </div>
-
-      <div className="mb-4 flex justify-end">
-        <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-gray-600 shadow-sm hover:bg-slate-50">
-          <input
+      
+      {/* Checkbox "Ocultar Zeradas" */}
+      <div className="flex justify-end mb-4">
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-50">
+          <input 
             type="checkbox"
             checked={ocultarZeradas}
-            onChange={(event) => setOcultarZeradas(event.target.checked)}
+            onChange={(e) => setOcultarZeradas(e.target.checked)}
             className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
           />
           Ocultar Células Zeradas
         </label>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {/* Lista de Células */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {celulasVisiveis.map((celula) => {
           const redeInfo = getRedeInfo(celula);
           return (
-            <div
-              key={celula.id}
-              className="rounded-lg border-t-4 bg-white p-6 shadow-md transition-shadow hover:shadow-lg"
-              style={{ borderTopColor: redeInfo.hex || "#6B7280" }}
-            >
-              <div className="mb-4 flex items-start justify-between">
-                <h3 className="truncate pr-2 text-xl font-semibold text-gray-900">{celula.nome}</h3>
-                <div className="flex flex-shrink-0 gap-1">
-                  <button
-                    onClick={() => handleEdit(celula)}
-                    className="rounded p-1 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
-                  >
+            <div key={celula.id} className="bg-white rounded-lg shadow-md p-6 border-t-4 hover:shadow-lg transition-shadow" style={{ borderTopColor: redeInfo.hex || '#6B7280' }}>
+              <div className="flex justify-between items-start mb-4">
+                <h3 className="text-xl font-semibold text-gray-900 truncate pr-2">{celula.nome}</h3>
+                <div className="flex gap-1 flex-shrink-0">
+                  <button onClick={() => handleEdit(celula)} className="text-gray-400 hover:text-blue-600 p-1 rounded hover:bg-blue-50 transition-colors">
                     <Edit2 size={18} />
                   </button>
-                  <button
-                    onClick={() => handleDelete(celula.id)}
-                    className="rounded p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                  >
+                  <button onClick={() => handleDelete(celula.id)} className="text-gray-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors">
                     <Trash2 size={18} />
                   </button>
                 </div>
               </div>
-
               <div className="space-y-3 text-sm">
                 <div className="flex items-center gap-2">
                   <UserCheck className="text-gray-500" size={16} />
                   <div>
                     <span className="font-medium text-gray-700">Líderes:</span>
-                    <p className="text-gray-600">{celula.lideres}</p>
+                    <p className="text-gray-600">{celula.lider}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <Users className="text-gray-500" size={16} />
                   <div>
-                    <span className="font-medium text-gray-700">Supervisão:</span>
+                    <span className="font-medium text-gray-700">Supervisores:</span>
                     <p className="text-gray-600">{celula.supervisores}</p>
                   </div>
                 </div>
@@ -553,26 +497,23 @@ export default function CelulasPage() {
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-700">Rede:</span>
                     <div className="flex items-center gap-1">
-                      <div
-                        className="h-3 w-3 rounded-full border border-gray-300"
-                        style={{ backgroundColor: redeInfo.hex || "#6B7280" }}
-                      />
+                      <div className="w-3 h-3 rounded-full border border-gray-300" style={{ backgroundColor: redeInfo.hex || '#6B7280' }}></div>
                       <span className="text-gray-600">{redeInfo.cor}</span>
                     </div>
                   </div>
                 </div>
-                <div className="mt-2 flex items-center gap-4 border-t border-slate-100 pt-2">
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center gap-4 mt-2 pt-2 border-t border-slate-100">
+                   <div className="flex items-center gap-2">
                     <Weight className="text-orange-500" size={18} />
                     <div>
-                      <span className="block text-xs text-gray-500">Total KG</span>
+                      <span className="text-xs text-gray-500 block">Total KG</span>
                       <span className="text-base font-bold text-gray-800">{celula.quantidade_kg} kg</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Box className="text-purple-500" size={18} />
                     <div>
-                      <span className="block text-xs text-gray-500">Total Itens</span>
+                      <span className="text-xs text-gray-500 block">Total Itens</span>
                       <span className="text-base font-bold text-gray-800">{celula.quantidade_itens}</span>
                     </div>
                   </div>
@@ -581,149 +522,117 @@ export default function CelulasPage() {
             </div>
           );
         })}
-
         {celulasVisiveis.length === 0 && (
-          <div className="col-span-full rounded-xl border border-dashed border-slate-300 bg-white py-12 text-center">
-            <EyeOff className="mx-auto mb-4 text-gray-400" size={48} />
-            <h3 className="mb-2 text-lg font-medium text-gray-900">Nenhuma célula encontrada</h3>
+          <div className="col-span-full text-center py-12 bg-white rounded-xl border border-dashed border-slate-300">
+            <EyeOff className="mx-auto text-gray-400 mb-4" size={48} />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhuma célula encontrada</h3>
             <p className="text-gray-500">Tente ajustar os filtros ou a busca.</p>
           </div>
         )}
       </div>
 
+      {/* Modal de Cadastro/Edição */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg bg-white p-6">
-            <div className="mb-4 flex items-center justify-between">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-gray-900">
-                {editingCelula ? "Editar Célula" : "Nova Célula"}
+                {editingCelula ? 'Editar Célula' : 'Nova Célula'}
               </h2>
-              <button onClick={handleCloseModal} className="text-gray-400 hover:text-gray-600">
+              <button
+                onClick={handleCloseModal}
+                className="text-gray-400 hover:text-gray-600"
+              >
                 <X size={24} />
               </button>
             </div>
-
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* CAMPOS DO FORMULÁRIO */}
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Nome da Célula *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Célula *</label>
                 <input
-                  type="text"
-                  name="nome"
-                  value={formData.nome}
-                  onChange={handleInputChange}
-                  required
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  type="text" name="nome" value={formData.nome} onChange={handleInputChange} required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Ex: Célula Central"
                 />
               </div>
-
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Nome dos Líderes *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome dos Líderes *</label>
                 <input
-                  type="text"
-                  name="lideres"
-                  value={formData.lideres}
-                  onChange={handleInputChange}
-                  required
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  type="text" name="lider" value={formData.lider} onChange={handleInputChange} required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Supervisão *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome dos Supervisores *</label>
+                <input
+                  type="text" name="supervisores" value={formData.supervisores} onChange={handleInputChange} required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cor da Rede *</label>
                 <select
-                  name="supervisao_id"
-                  value={formData.supervisao_id}
-                  onChange={handleInputChange}
-                  required
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  name="rede_id" value={formData.rede_id} onChange={handleInputChange} required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">Selecione a supervisão</option>
-                  {supervisoesOrdenadas.map((supervisao) => (
-                    <option key={supervisao.id} value={supervisao.id}>
-                      {getSupervisaoLabel(supervisao)}
-                    </option>
+                  <option value="">Selecione a rede</option>
+                  {redes.map((rede) => (
+                    <option key={rede.id} value={rede.id}>{rede.cor}</option>
                   ))}
                 </select>
-                {formData.supervisao_id && (
-                  <p className="mt-1 text-xs text-slate-500">
-                    Rede vinculada:{" "}
-                    {redes.find(
-                      (rede) =>
-                        rede.id === supervisaoMap.get(formData.supervisao_id)?.rede_id
-                    )?.cor || "N/D"}
-                  </p>
-                )}
               </div>
-
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Telefone</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
                 <input
-                  type="tel"
-                  name="telefone"
-                  value={formData.telefone}
-                  onChange={handleInputChange}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  type="tel" name="telefone" value={formData.telefone} onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="(41) 99999-9999"
                 />
               </div>
-
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Endereço</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Endereço</label>
                 <textarea
-                  name="endereco"
-                  value={formData.endereco}
-                  onChange={handleInputChange}
-                  rows={2}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  name="endereco" value={formData.endereco} onChange={handleInputChange} rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Rua, número, bairro"
                 />
               </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Quantidade de KG *</label>
-                  <input
-                    type="number"
-                    name="quantidade_kg"
-                    value={formData.quantidade_kg}
-                    onChange={handleInputChange}
-                    min="0"
-                    step="0.01"
-                    required
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="0.00"
-                  />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de KG *</label>
+                    {/* --- CORREÇÃO DO DECIMAL (STEP 0.01) --- */}
+                    <input
+                      type="number" name="quantidade_kg" value={formData.quantidade_kg} onChange={handleInputChange}
+                      min="0" step="0.01" required 
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="0.00"
+                    />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Quantidade de Itens *</label>
-                  <input
-                    type="number"
-                    name="quantidade_itens"
-                    value={formData.quantidade_itens}
-                    onChange={handleInputChange}
-                    min="0"
-                    required
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="0"
-                  />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de Itens *</label>
+                    <input
+                      type="number" name="quantidade_itens" value={formData.quantidade_itens} onChange={handleInputChange}
+                      min="0" required
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="0"
+                    />
                 </div>
               </div>
 
               <div className="flex gap-3 pt-4">
                 <button
-                  type="button"
-                  onClick={handleCloseModal}
-                  className="flex-1 rounded-md border border-gray-300 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-50"
+                  type="button" onClick={handleCloseModal}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex flex-1 items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700"
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
                 >
                   <Save size={16} />
-                  {editingCelula ? "Atualizar" : "Salvar"}
+                  {editingCelula ? 'Atualizar' : 'Salvar'}
                 </button>
               </div>
             </form>
@@ -731,10 +640,11 @@ export default function CelulasPage() {
         </div>
       )}
 
+      {/* Modal de Recebimento (SEM ALTERAÇÕES) */}
       {isRecebimentoModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-          <div className="w-full max-w-md rounded-lg bg-white p-6">
-            <div className="mb-4 flex items-center justify-between">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-gray-900">Adicionar Recebimento</h2>
               <button
                 onClick={handleCloseRecebimentoModal}
@@ -743,34 +653,30 @@ export default function CelulasPage() {
                 <X size={24} />
               </button>
             </div>
-
             <form onSubmit={handleRecebimentoSubmit} className="space-y-4">
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Selecionar Célula *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Selecionar Célula *</label>
                 <select
-                  value={selectedCelulaRecebimento?.id || ""}
-                  onChange={(event) => {
-                    const celula = celulas.find((item) => item.id === event.target.value);
+                  value={selectedCelulaRecebimento?.id || ''}
+                  onChange={(e) => {
+                    const celula = celulas.find(c => c.id === parseInt(e.target.value));
                     setSelectedCelulaRecebimento(celula || null);
                   }}
                   required
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                 >
                   <option value="">Selecione uma célula</option>
                   {celulas.map((celula) => (
-                    <option key={celula.id} value={celula.id}>
-                      {celula.nome}
-                    </option>
+                    <option key={celula.id} value={celula.id}>{celula.nome}</option>
                   ))}
                 </select>
               </div>
-
               {selectedCelulaRecebimento && (
-                <div className="relative space-y-2 rounded-lg bg-gray-50 p-4">
+                <div className="bg-gray-50 p-4 rounded-lg space-y-2 relative">
                   <button
                     type="button"
                     onClick={() => handleRequestEdit(selectedCelulaRecebimento)}
-                    className="absolute right-3 top-3 text-gray-400 transition-colors hover:text-blue-600"
+                    className="absolute top-3 right-3 text-gray-400 hover:text-blue-600 transition-colors"
                     title="Editar esta Célula"
                   >
                     <Edit2 size={18} />
@@ -778,124 +684,116 @@ export default function CelulasPage() {
                   <h3 className="font-medium text-gray-900">Informações da Célula:</h3>
                   <div className="text-sm">
                     <span className="font-medium text-gray-700">Líderes:</span>
-                    <span className="ml-1 text-gray-600">{selectedCelulaRecebimento.lideres}</span>
+                    <span className="ml-1 text-gray-600">{selectedCelulaRecebimento.lider}</span>
                   </div>
                   <div className="text-sm">
-                    <span className="font-medium text-gray-700">Supervisão:</span>
+                    <span className="font-medium text-gray-700">Supervisores:</span>
                     <span className="ml-1 text-gray-600">{selectedCelulaRecebimento.supervisores}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-sm">
+                  <div className="text-sm flex items-center gap-2">
                     <span className="font-medium text-gray-700">Rede:</span>
                     <div className="flex items-center gap-1">
-                      <div
-                        className="h-3 w-3 rounded-full border border-gray-300"
+                      <div 
+                        className="w-3 h-3 rounded-full border border-gray-300" 
                         style={{ backgroundColor: getRedeInfo(selectedCelulaRecebimento).hex }}
-                      />
+                      ></div>
                       <span className="text-gray-600">{getRedeInfo(selectedCelulaRecebimento).cor}</span>
                     </div>
                   </div>
                   <div className="text-sm">
                     <span className="font-medium text-gray-700">KG Atual:</span>
-                    <span className="ml-1 font-bold text-orange-600">
-                      {selectedCelulaRecebimento.quantidade_kg} kg
-                    </span>
+                    <span className="ml-1 text-orange-600 font-bold">{selectedCelulaRecebimento.quantidade_kg} kg</span>
                   </div>
                 </div>
               )}
-
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Quantidade de KG a Receber *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de KG a Receber *</label>
                 <input
-                  type="text"
-                  inputMode="decimal"
+                  type="text" inputMode="decimal"
                   value={recebimentoKG}
-                  onChange={(event) => {
-                    const valor = event.target.value;
-                    if (valor === "" || /^[0-9]*\.?[0-9]*$/.test(valor)) {
+                  onChange={(e) => {
+                    const valor = e.target.value;
+                    if (valor === '' || /^[0-9]*\.?[0-9]*$/.test(valor)) {
                       setRecebimentoKG(valor);
                     }
                   }}
-                  min="0"
-                  step="0.1"
-                  required
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  min="0" step="0.1" required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                   placeholder="0.0"
-                  onFocus={(event) => event.target.value === "0" && setRecebimentoKG("")}
-                  onBlur={(event) => event.target.value === "" && setRecebimentoKG("0")}
+                  onFocus={(e) => e.target.value === '0' && setRecebimentoKG('')}
+                  onBlur={(e) => e.target.value === '' && setRecebimentoKG('0')}
                 />
               </div>
-
+              
+              {/* --- CAMPO DE ITENS ADICIONADO --- */}
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Quantidade de ITENS a Receber *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de ITENS a Receber *</label>
                 <input
-                  type="text"
-                  inputMode="numeric"
+                  type="text" inputMode="numeric"
                   value={recebimentoItens}
-                  onChange={(event) => {
-                    const valor = event.target.value;
-                    if (valor === "" || /^[0-9]*\.?[0-9]*$/.test(valor)) {
+                  onChange={(e) => {
+                    const valor = e.target.value;
+                    if (valor === '' || /^[0-9]*\.?[0-9]*$/.test(valor)) { // Apenas números inteiros
                       setRecebimentoItens(valor);
                     }
                   }}
-                  min="0"
-                  required
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  min="0" required // Alterado para min="0" para permitir 0 itens se for só KG
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                   placeholder="1"
-                  onFocus={(event) => event.target.value === "1" && setRecebimentoItens("")}
-                  onBlur={(event) => event.target.value === "" && setRecebimentoItens("0")}
+                  onFocus={(e) => e.target.value === '1' && setRecebimentoItens('')}
+                  onBlur={(e) => e.target.value === '' && setRecebimentoItens('0')} // Agora pode ser 0 por padrão
                 />
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Data do Recebimento *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Data do Recebimento *</label>
                 <input
                   type="date"
                   value={dataChegada}
-                  onChange={(event) => setDataChegada(event.target.value)}
+                  onChange={(e) => setDataChegada(e.target.value)}
                   required
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
 
+              {/* --- CAMPO DE OBSERVAÇÃO --- */}
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Observações</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
                 <textarea
                   value={observacao}
-                  onChange={(event) => setObservacao(event.target.value)}
+                  onChange={(e) => setObservacao(e.target.value)}
                   rows={3}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                   placeholder="Ex: Produtos vencidos, pacote rasgado, etc."
                 />
               </div>
-
+              
               {selectedCelulaRecebimento && (
-                <div className="space-y-1 rounded-lg bg-green-50 p-3">
+                <div className="bg-green-50 p-3 rounded-lg space-y-1">
                   <div className="text-sm">
                     <span className="font-medium text-green-800">Novo Total (KG na Célula):</span>
-                    <span className="ml-1 font-bold text-green-700">
+                    <span className="ml-1 text-green-700 font-bold">
                       {(Number(selectedCelulaRecebimento.quantidade_kg) + Number(recebimentoKG || 0)).toFixed(1)} kg
                     </span>
                   </div>
                   <div className="text-sm">
                     <span className="font-medium text-green-800">Novo Total (Itens na Célula):</span>
-                    <span className="ml-1 font-bold text-green-700">
-                      {Number(selectedCelulaRecebimento.quantidade_itens) + Number(recebimentoItens || 0)}
+                    <span className="ml-1 text-green-700 font-bold">
+                      {(Number(selectedCelulaRecebimento.quantidade_itens) + Number(recebimentoItens || 0))}
                     </span>
                   </div>
                 </div>
               )}
-
               <div className="flex gap-3 pt-4">
                 <button
-                  type="button"
-                  onClick={handleCloseRecebimentoModal}
-                  className="flex-1 rounded-md border border-gray-300 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-50"
+                  type="button" onClick={handleCloseRecebimentoModal}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex flex-1 items-center justify-center gap-2 rounded-md bg-green-600 px-4 py-2 text-white transition-colors hover:bg-green-700"
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
                 >
                   <Save size={16} />
                   Registrar Recebimento

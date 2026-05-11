@@ -3,8 +3,8 @@ import { ArrowRight, LockKeyhole, Mail, ShieldCheck, Sparkles } from "lucide-rea
 import { supabase } from "../lib/supabaseClient";
 
 export default function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("admin@alvo.com");
+  const [password, setPassword] = useState("admin123");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
@@ -19,24 +19,18 @@ export default function Login() {
 
   return (
     <div className="relative min-h-screen overflow-hidden px-4 py-6 sm:px-6 lg:px-8">
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 h-[320px]"
-        style={{
-          background:
-            "radial-gradient(circle at top left, rgba(255,107,0,0.16), transparent 34%), radial-gradient(circle at top right, rgba(157,0,255,0.18), transparent 34%)",
-        }}
-      />
-      <div className="pointer-events-none absolute -right-20 bottom-0 h-72 w-72 rounded-full bg-fuchsia-300/20 blur-3xl" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[320px] bg-[radial-gradient(circle_at_top,rgba(14,165,233,0.18),transparent_56%)]" />
+      <div className="pointer-events-none absolute -right-20 bottom-0 h-72 w-72 rounded-full bg-emerald-300/20 blur-3xl" />
       <div className="mx-auto grid min-h-[calc(100vh-3rem)] w-full max-w-6xl items-stretch gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <section className="app-hero flex flex-col justify-between">
           <div>
             <div className="app-kicker">Congregacao O Alvo Curitiba</div>
             <h1 className="app-title max-w-xl">
-              O modulo do KG com a mesma linguagem do 360.
+              Operacao organizada para recebimentos, estoque e distribuicao.
             </h1>
             <p className="app-subtitle">
-              Estrutura sincronizada com redes, supervisoes e celulas do 360, mantendo toda a
-              rotina operacional do KG do Amor em um fluxo mais consistente.
+              Uma interface mais clara para acompanhar entradas, retiradas e o desempenho das
+              celulas em diferentes contextos de uso.
             </p>
           </div>
 
@@ -56,7 +50,7 @@ export default function Login() {
               </div>
               <h2 className="mt-4 text-sm font-semibold text-slate-900">Fluxo mais limpo</h2>
               <p className="mt-2 text-sm leading-6 text-slate-500">
-                Navegacao alinhada ao ecossistema do 360, sem perder o foco operacional.
+                Navegacao focada nas rotinas do dia a dia, sem perda de contexto.
               </p>
             </div>
             <div className="app-surface p-4">
@@ -65,7 +59,7 @@ export default function Login() {
               </div>
               <h2 className="mt-4 text-sm font-semibold text-slate-900">Resposta rapida</h2>
               <p className="mt-2 text-sm leading-6 text-slate-500">
-                Inicio direto para recebimentos, estoque, painel e acompanhamento mensal.
+                Carregamento leve e inicio direto para o trabalho operacional.
               </p>
             </div>
           </div>

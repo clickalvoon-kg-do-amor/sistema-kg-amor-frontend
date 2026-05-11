@@ -2,17 +2,23 @@ import { useEffect, useMemo, useState } from "react";
 import { BarChart3, Boxes, Download, Network, Users } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
-import { fetchKgStructure, type KgCelulaDisplay } from "../lib/kgStructure";
 import { formatLocalDate } from "../utils/date";
 import { PageHeader, StatCard, Surface } from "../components/ui";
 
 type HistoricoComCelula = {
-  celula_id: string;
   quantidade: number;
   quantidade_itens: number;
   data_chegada: string;
   observacoes: string | null;
-  celulas: KgCelulaDisplay | null;
+  celulas: {
+    id: number;
+    nome: string;
+    lider?: string | null;
+    supervisores: string;
+    redes?: {
+      cor: string | null;
+    } | null;
+  } | null;
 };
 
 type Filtros = {
@@ -112,9 +118,21 @@ export default function Dashboard() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [{ data, error }, estrutura] = await Promise.all([
-        supabase.from("historico_kg").select("celula_id, quantidade, quantidade_itens, data_chegada, observacoes"),
-        fetchKgStructure(),
+      const [{ data, error }, { data: redesData }] = await Promise.all([
+        supabase.from("historico_kg").select(`
+          quantidade,
+          quantidade_itens,
+          data_chegada,
+          observacoes,
+          celulas (
+            id,
+            nome,
+            lider,
+            supervisores,
+            redes (cor)
+          )
+        `),
+        supabase.from("redes").select("cor").eq("ativo", true),
       ]);
 
       if (error) {
@@ -124,13 +142,12 @@ export default function Dashboard() {
         const normalizados = (data || []).map((registro: any) => ({
           ...registro,
           data_chegada: getDateOnly(registro.data_chegada),
-          celulas: estrutura.celulaMap.get(registro.celula_id) || null,
         }));
         setTodoHistorico(normalizados as HistoricoComCelula[]);
       }
 
-      const listaRedes = estrutura.redes
-        .map((rede) => (rede.cor || "").toUpperCase())
+      const listaRedes = (redesData || [])
+        .map((rede: { cor: string | null }) => (rede.cor || "").toUpperCase())
         .filter(Boolean);
       setRedesDisponiveis(listaRedes);
       setLoading(false);
@@ -166,7 +183,7 @@ export default function Dashboard() {
   }, [todoHistorico, filtros]);
 
   const celulasUnicas = useMemo(() => {
-    const ids = new Set<string>();
+    const ids = new Set<number>();
     filtradas.forEach((registro) => {
       if (registro.celulas?.id) ids.add(registro.celulas.id);
     });
