@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,13 +7,37 @@
 @layer base {
   :root {
     color-scheme: light;
-    --app-bg: #f3f6f4;
-    --app-bg-strong: #e4ecea;
-    --app-surface: rgba(255, 255, 255, 0.78);
-    --app-surface-strong: rgba(255, 255, 255, 0.92);
-    --app-border: rgba(148, 163, 184, 0.18);
-    --app-shadow: 0 28px 56px -34px rgba(15, 23, 42, 0.34);
-    --app-shadow-soft: 0 20px 38px -30px rgba(15, 23, 42, 0.34);
+    --sb-bg: #0b1120;
+    --sb-border: rgba(148, 163, 184, 0.08);
+    --sb-text: #e2e8f0;
+    --sb-muted: #94a3b8;
+    --sb-hover: rgba(255, 255, 255, 0.05);
+
+    --bg: #f8f9fa;
+    --panel: rgba(255, 255, 255, 0.88);
+    --panel-strong: rgba(255, 255, 255, 0.96);
+    --line: rgba(226, 232, 240, 0.92);
+    --ink: #111827;
+    --muted: #64748b;
+
+    --brand-gradient: linear-gradient(135deg, #ff6b00 0%, #ff0080 52%, #9d00ff 100%);
+    --brand-orange: #ff6b00;
+    --brand-pink: #ff0080;
+    --brand-purple: #9d00ff;
+    --accent: #9d00ff;
+    --accent-soft: rgba(157, 0, 255, 0.08);
+
+    --success: #16a34a;
+    --success-soft: #dcfce7;
+    --danger: #dc2626;
+    --danger-soft: #fef2f2;
+    --amber: #d97706;
+    --amber-soft: #fef3c7;
+
+    --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.05);
+    --shadow-sm: 0 10px 30px -24px rgba(15, 23, 42, 0.28);
+    --shadow-md: 0 24px 60px -32px rgba(15, 23, 42, 0.32);
+    --shadow-lg: 0 36px 80px -42px rgba(15, 23, 42, 0.42);
   }
 
   html {
@@ -20,12 +46,15 @@
 
   body {
     min-height: 100%;
+    margin: 0;
     background:
-      radial-gradient(circle at top left, rgba(14, 165, 233, 0.14), transparent 26%),
-      radial-gradient(circle at top right, rgba(16, 185, 129, 0.12), transparent 28%),
-      linear-gradient(180deg, #f7faf9 0%, #eef4f2 56%, #edf3f1 100%);
-    color: #0f172a;
-    font-family: "Aptos", "Segoe UI Variable Text", "Segoe UI", sans-serif;
+      radial-gradient(circle at top left, rgba(255, 107, 0, 0.12), transparent 28%),
+      radial-gradient(circle at top right, rgba(157, 0, 255, 0.13), transparent 26%),
+      linear-gradient(180deg, #f8fafc 0%, #f4f6fb 48%, #f8f9fa 100%);
+    color: var(--ink);
+    font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   body::before {
@@ -34,25 +63,30 @@
     inset: 0;
     pointer-events: none;
     background-image:
-      linear-gradient(rgba(148, 163, 184, 0.055) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(148, 163, 184, 0.055) 1px, transparent 1px);
-    background-size: 72px 72px;
+      linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+    background-size: 76px 76px;
     mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.9), transparent 78%);
-    opacity: 0.5;
+    opacity: 0.48;
   }
 
   #root {
     @apply min-h-screen;
   }
 
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
   ::selection {
-    background: rgba(14, 165, 233, 0.22);
-    color: #0f172a;
+    background: rgba(157, 0, 255, 0.16);
+    color: #111827;
   }
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(100, 116, 139, 0.36) transparent;
+    scrollbar-color: rgba(100, 116, 139, 0.35) transparent;
   }
 
   *::-webkit-scrollbar {
@@ -72,7 +106,7 @@
   }
 
   *:focus-visible {
-    outline: 2px solid rgba(14, 165, 233, 0.45);
+    outline: 2px solid rgba(157, 0, 255, 0.34);
     outline-offset: 2px;
   }
 
@@ -84,18 +118,19 @@
   input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]):not([type="file"]),
   select,
   textarea {
-    @apply w-full rounded-2xl border border-slate-200/90 bg-white/90 px-3.5 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 12px 28px -24px rgba(15, 23, 42, 0.45);
+    @apply w-full rounded-2xl border px-3.5 py-3 text-sm outline-none transition placeholder:text-slate-400;
+    border-color: var(--line);
+    background: rgba(255, 255, 255, 0.92);
+    color: #334155;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 12px 28px -24px rgba(15, 23, 42, 0.4);
   }
 
   input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]):not([type="file"]):focus,
   select:focus,
   textarea:focus {
-    @apply border-sky-400 bg-white ring-4 ring-sky-500/10;
-  }
-
-  input[type="color"] {
-    @apply h-11 w-12 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm;
+    border-color: rgba(157, 0, 255, 0.4);
+    background: #fff;
+    box-shadow: 0 0 0 4px rgba(157, 0, 255, 0.08), 0 12px 28px -24px rgba(15, 23, 42, 0.45);
   }
 
   textarea {
@@ -109,12 +144,14 @@
   }
 
   .app-kicker {
-    @apply mb-3 inline-flex rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 backdrop-blur;
+    @apply mb-3 inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] backdrop-blur;
+    border-color: rgba(255, 255, 255, 0.78);
+    background: rgba(255, 255, 255, 0.84);
+    color: var(--muted);
   }
 
   .app-title {
-    font-family: "Aptos Display", "Segoe UI Variable Display", "Trebuchet MS", sans-serif;
-    @apply text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl;
+    @apply text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl;
   }
 
   .app-subtitle {
@@ -124,8 +161,10 @@
   .app-hero {
     position: relative;
     overflow: hidden;
-    @apply rounded-[32px] border border-white/75 bg-white/70 p-6 backdrop-blur xl:p-8;
-    box-shadow: var(--app-shadow);
+    @apply rounded-[30px] border p-6 backdrop-blur xl:p-8;
+    border-color: rgba(255, 255, 255, 0.82);
+    background: var(--panel);
+    box-shadow: var(--shadow-md);
   }
 
   .app-hero > * {
@@ -136,23 +175,24 @@
   .app-hero::before {
     content: "";
     position: absolute;
-    right: -64px;
-    top: -72px;
-    width: 220px;
-    height: 220px;
+    right: -72px;
+    top: -82px;
+    width: 240px;
+    height: 240px;
     border-radius: 999px;
-    background: radial-gradient(circle, rgba(14, 165, 233, 0.18) 0%, rgba(14, 165, 233, 0) 72%);
+    background: radial-gradient(circle, rgba(255, 0, 128, 0.14) 0%, rgba(255, 0, 128, 0) 72%);
     pointer-events: none;
   }
 
   .app-hero::after {
     content: "";
     position: absolute;
-    inset: auto auto -48px -24px;
-    width: 180px;
-    height: 180px;
+    bottom: -52px;
+    left: -26px;
+    width: 200px;
+    height: 200px;
     border-radius: 999px;
-    background: radial-gradient(circle, rgba(16, 185, 129, 0.16) 0%, rgba(16, 185, 129, 0) 70%);
+    background: radial-gradient(circle, rgba(255, 107, 0, 0.16) 0%, rgba(255, 107, 0, 0) 72%);
     pointer-events: none;
   }
 
@@ -161,12 +201,15 @@
   }
 
   .app-surface {
-    @apply rounded-[28px] border border-white/75 bg-white/80 backdrop-blur;
-    box-shadow: var(--app-shadow-soft);
+    @apply rounded-[26px] border backdrop-blur;
+    border-color: rgba(255, 255, 255, 0.78);
+    background: var(--panel);
+    box-shadow: var(--shadow-sm);
   }
 
   .surface-header {
-    @apply flex flex-col gap-3 border-b border-slate-200/75 px-5 py-4 sm:flex-row sm:items-center sm:justify-between;
+    @apply flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between;
+    border-color: rgba(226, 232, 240, 0.82);
   }
 
   .surface-title {
@@ -182,8 +225,10 @@
   }
 
   .toolbar-surface {
-    @apply rounded-[24px] border border-white/75 bg-white/80 p-4 backdrop-blur;
-    box-shadow: var(--app-shadow-soft);
+    @apply rounded-[24px] border p-4 backdrop-blur;
+    border-color: rgba(255, 255, 255, 0.78);
+    background: rgba(255, 255, 255, 0.82);
+    box-shadow: var(--shadow-sm);
   }
 
   .stats-grid {
@@ -193,8 +238,10 @@
   .stat-card {
     position: relative;
     overflow: hidden;
-    @apply rounded-[26px] border border-white/75 bg-white/90 p-5;
-    box-shadow: var(--app-shadow-soft);
+    @apply rounded-[24px] border p-5;
+    border-color: rgba(255, 255, 255, 0.78);
+    background: var(--panel-strong);
+    box-shadow: var(--shadow-sm);
   }
 
   .stat-card::before {
@@ -205,15 +252,15 @@
     top: 0;
     height: 4px;
     border-radius: 999px;
-    background: linear-gradient(90deg, rgba(14, 165, 233, 0.95), rgba(16, 185, 129, 0.95));
+    background: var(--brand-gradient);
   }
 
   .stat-label {
-    @apply text-sm font-medium text-slate-500;
+    @apply text-sm font-semibold uppercase tracking-[0.08em] text-slate-500;
   }
 
   .stat-value {
-    @apply mt-3 text-3xl font-semibold tracking-tight text-slate-950;
+    @apply mt-3 text-3xl font-extrabold tracking-tight text-slate-950;
   }
 
   .stat-note {
@@ -221,7 +268,9 @@
   }
 
   .stat-icon {
-    @apply inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/80 shadow-sm;
+    @apply inline-flex h-11 w-11 items-center justify-center rounded-2xl border shadow-sm;
+    border-color: rgba(255, 255, 255, 0.82);
+    background: rgba(255, 255, 255, 0.84);
   }
 
   .button-base {
@@ -229,43 +278,75 @@
   }
 
   .button-primary {
-    @apply bg-slate-900 text-white hover:bg-slate-800;
+    background: var(--brand-gradient);
+    color: white;
+    box-shadow: 0 18px 34px -24px rgba(157, 0, 255, 0.55);
+  }
+
+  .button-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 22px 38px -22px rgba(157, 0, 255, 0.58);
   }
 
   .button-secondary {
-    @apply border border-slate-200 bg-white/90 text-slate-700 hover:bg-slate-50;
+    @apply border text-slate-700 hover:bg-slate-50;
+    border-color: rgba(226, 232, 240, 0.9);
+    background: rgba(255, 255, 255, 0.92);
   }
 
   .button-success {
-    @apply bg-emerald-600 text-white hover:bg-emerald-500;
+    @apply text-white;
+    background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%);
+    box-shadow: 0 18px 34px -24px rgba(34, 197, 94, 0.42);
   }
 
   .button-danger {
-    @apply bg-rose-600 text-white hover:bg-rose-500;
+    @apply text-white;
+    background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
   }
 
   .button-soft {
-    @apply bg-sky-50 text-sky-700 hover:bg-sky-100;
+    @apply text-sky-700 hover:bg-sky-100;
+    background: rgba(14, 165, 233, 0.08);
   }
 
   .icon-button {
-    @apply inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-transparent text-slate-500 transition hover:border-slate-200 hover:bg-slate-50 hover:text-slate-900;
+    @apply inline-flex h-10 w-10 items-center justify-center rounded-2xl border text-slate-500 transition hover:text-slate-900;
+    border-color: transparent;
+  }
+
+  .icon-button:hover {
+    border-color: rgba(226, 232, 240, 0.92);
+    background: rgba(248, 250, 252, 0.92);
   }
 
   .sidebar-link {
-    @apply flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-100/80 hover:text-slate-900;
+    @apply flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition;
+    color: var(--sb-muted);
+  }
+
+  .sidebar-link:hover {
+    background: var(--sb-hover);
+    color: var(--sb-text);
   }
 
   .sidebar-link-active {
-    @apply bg-slate-900 text-white shadow-lg shadow-slate-900/15 hover:bg-slate-900 hover:text-white;
+    background: var(--accent-soft);
+    color: #fff;
+    box-shadow: 0 16px 34px -24px rgba(157, 0, 255, 0.48);
   }
 
   .pill {
-    @apply inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-slate-600 backdrop-blur;
+    @apply inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold backdrop-blur;
+    border-color: rgba(255, 255, 255, 0.74);
+    background: rgba(255, 255, 255, 0.72);
+    color: #475569;
   }
 
   .empty-state {
-    @apply rounded-[28px] border border-dashed border-slate-300/80 bg-white/70 px-6 py-12 text-center;
-    box-shadow: var(--app-shadow-soft);
+    @apply rounded-[28px] border border-dashed px-6 py-12 text-center;
+    border-color: rgba(203, 213, 225, 0.84);
+    background: rgba(255, 255, 255, 0.72);
+    box-shadow: var(--shadow-sm);
   }
 }
