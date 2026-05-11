@@ -242,7 +242,7 @@ export default function CelulasPage() {
           }
 
           const { error: updateError } = await supabase
-            .from("celulas")
+            .from("kg_celulas")
             .update(dadosParaSalvar)
             .eq("id", editingCelula.id);
           if (updateError) throw updateError;
@@ -250,7 +250,7 @@ export default function CelulasPage() {
           showToast("Saldo ajustado e histórico atualizado!");
         } else {
           const { error } = await supabase
-            .from("celulas")
+            .from("kg_celulas")
             .update({
               nome: formData.nome,
               lideres: formData.lideres,
@@ -264,7 +264,7 @@ export default function CelulasPage() {
           showToast("Dados cadastrais atualizados!");
         }
       } else {
-        const { error } = await supabase.from("celulas").insert([dadosParaSalvar]);
+        const { error } = await supabase.from("kg_celulas").insert([dadosParaSalvar]);
         if (error) throw error;
         showToast("Célula criada com sucesso!");
       }
@@ -296,7 +296,7 @@ export default function CelulasPage() {
 
     try {
       await supabase.from("historico_kg").delete().eq("celula_id", celulaId);
-      const { error } = await supabase.from("celulas").update({ ativo: false }).eq("id", celulaId);
+      const { error } = await supabase.from("kg_celulas").update({ ativo: false }).eq("id", celulaId);
       if (error) throw error;
 
       await carregarDados();
@@ -347,7 +347,7 @@ export default function CelulasPage() {
       if (historicoError) throw historicoError;
 
       const { error: celulaError } = await supabase
-        .from("celulas")
+        .from("kg_celulas")
         .update({
           quantidade_kg: novaQuantidadeKG,
           quantidade_itens: novaQuantidadeItens,

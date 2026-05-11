@@ -166,9 +166,9 @@ export function buildKgStructure(
 export async function fetchKgStructure() {
   const [redesRes, supervisoesRes, celulasRes] = await Promise.all([
     supabase.from("redes").select("id, cor, descricao, ativo").eq("ativo", true).order("cor"),
-    supabase.from("supervisoes").select("id, nome, rede_id, ativo").eq("ativo", true).order("nome"),
+    supabase.from("kg_supervisoes").select("id, nome, rede_id, ativo").eq("ativo", true).order("nome"),
     supabase
-      .from("celulas")
+      .from("kg_celulas")
       .select(
         "id, nome, rede_id, supervisao_id, lideres, endereco, telefone, observacoes, ativo, quantidade_kg, quantidade_itens, created_at, updated_at"
       )
