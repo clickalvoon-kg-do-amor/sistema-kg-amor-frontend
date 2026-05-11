@@ -32,14 +32,20 @@ export default function Layout({ user, onLogout }: Props) {
 
   return (
     <div className="app-shell">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[280px] bg-[radial-gradient(circle_at_top,rgba(14,165,233,0.15),transparent_58%)]" />
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-[340px]"
+        style={{
+          background:
+            "radial-gradient(circle at top left, rgba(255,107,0,0.14), transparent 34%), radial-gradient(circle at top right, rgba(157,0,255,0.16), transparent 32%)",
+        }}
+      />
       <Navbar
         user={user}
         onLogout={onLogout}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((open) => !open)}
       />
-      <div className="mx-auto flex w-full max-w-[1600px] gap-4 px-3 pb-6 pt-4 sm:px-4 lg:gap-6 lg:px-6">
+      <div className="mx-auto flex w-full max-w-[1600px] gap-4 px-3 pb-6 pt-5 sm:px-4 lg:gap-6 lg:px-6">
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <main className="min-w-0 flex-1">
           <Outlet />
