@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { BarChart3, Boxes, Download, Network, Users } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabaseClient";
-import { formatLocalDate } from "../utils/date";
+import { formatLocalDate, toUtcISOStringFromLocalDate } from "../utils/date";
 import { PageHeader, StatCard, Surface } from "../components/ui";
 
 type HistoricoComCelula = {
@@ -96,11 +96,14 @@ export default function Dashboard() {
   const [todoHistorico, setTodoHistorico] = useState<HistoricoComCelula[]>([]);
   const [loading, setLoading] = useState(true);
   const [redesDisponiveis, setRedesDisponiveis] = useState<string[]>([]);
-  const [filtros, setFiltros] = useState<Filtros>({
-    rede: "Todas",
-    supervisao: "Todos",
-    dataIni: "",
-    dataFim: "",
+  const [filtros, setFiltros] = useState<Filtros>(() => {
+    const now = new Date();
+    return {
+      rede: "Todas",
+      supervisao: "Todos",
+      dataIni: formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1)),
+      dataFim: formatLocalDate(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+    };
   });
 
   const opcoesRede = useMemo(() => {
@@ -119,12 +122,21 @@ export default function Dashboard() {
     (async () => {
       setLoading(true);
 
+      const inicio = toUtcISOStringFromLocalDate(filtros.dataIni);
+      const fim    = toUtcISOStringFromLocalDate(filtros.dataFim, true);
+
+      let historicoQuery = supabase
+        .from("historico_kg")
+        .select("celula_id, quantidade, quantidade_itens, data_chegada, observacoes");
+      if (inicio) historicoQuery = historicoQuery.gte("data_chegada", inicio);
+      if (fim)    historicoQuery = historicoQuery.lte("data_chegada", fim);
+
       const [
         { data: historicoData, error },
         { data: celulasData },
         { data: redesData },
       ] = await Promise.all([
-        supabase.from("historico_kg").select("celula_id, quantidade, quantidade_itens, data_chegada, observacoes"),
+        historicoQuery,
         supabase.from("celulas").select("id, nome, lider, supervisores, redes(cor)"),
         supabase.from("redes").select("cor").eq("ativo", true),
       ]);
@@ -152,7 +164,7 @@ export default function Dashboard() {
       setRedesDisponiveis(listaRedes);
       setLoading(false);
     })();
-  }, []);
+  }, [filtros.dataIni, filtros.dataFim]);
 
   const filtradas = useMemo(() => {
     let registros = [...todoHistorico];
@@ -171,16 +183,8 @@ export default function Dashboard() {
       );
     }
 
-    if (filtros.dataIni) {
-      registros = registros.filter((registro) => getDateOnly(registro.data_chegada) >= filtros.dataIni);
-    }
-
-    if (filtros.dataFim) {
-      registros = registros.filter((registro) => getDateOnly(registro.data_chegada) <= filtros.dataFim);
-    }
-
     return registros;
-  }, [todoHistorico, filtros]);
+  }, [todoHistorico, filtros.rede, filtros.supervisao]);
 
   const celulasUnicas = useMemo(() => {
     const ids = new Set<number>();
