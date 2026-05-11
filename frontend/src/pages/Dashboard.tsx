@@ -118,20 +118,14 @@ export default function Dashboard() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [{ data, error }, { data: redesData }] = await Promise.all([
-        supabase.from("historico_kg").select(`
-          quantidade,
-          quantidade_itens,
-          data_chegada,
-          observacoes,
-          celulas (
-            id,
-            nome,
-            lider,
-            supervisores,
-            redes (cor)
-          )
-        `),
+
+      const [
+        { data: historicoData, error },
+        { data: celulasData },
+        { data: redesData },
+      ] = await Promise.all([
+        supabase.from("historico_kg").select("celula_id, quantidade, quantidade_itens, data_chegada, observacoes"),
+        supabase.from("celulas").select("id, nome, lider, supervisores, redes(cor)"),
         supabase.from("redes").select("cor").eq("ativo", true),
       ]);
 
@@ -139,9 +133,15 @@ export default function Dashboard() {
         console.error("Erro ao buscar historico:", error);
         setTodoHistorico([]);
       } else {
-        const normalizados = (data || []).map((registro: any) => ({
-          ...registro,
+        const celulaMap = new Map(
+          (celulasData || []).map((c: any) => [c.id, c])
+        );
+        const normalizados = (historicoData || []).map((registro: any) => ({
+          quantidade: registro.quantidade,
+          quantidade_itens: registro.quantidade_itens,
           data_chegada: getDateOnly(registro.data_chegada),
+          observacoes: registro.observacoes,
+          celulas: (celulaMap.get(registro.celula_id) as any) ?? null,
         }));
         setTodoHistorico(normalizados as HistoricoComCelula[]);
       }
