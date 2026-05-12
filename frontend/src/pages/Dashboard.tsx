@@ -552,8 +552,19 @@ export default function Dashboard() {
                   onMouseDown={() => selecionarCelula(celula)}
                   className="flex cursor-pointer flex-col gap-0.5 px-4 py-2.5 hover:bg-slate-50"
                 >
-                  <span className="text-sm font-medium text-slate-800">{celula.nome}</span>
-                  <span className="text-xs text-slate-500">{celula.supervisores}</span>
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="h-2.5 w-2.5 shrink-0 rounded-full border"
+                      style={{
+                        backgroundColor: getNetworkColor(celula.redes?.cor),
+                        borderColor: (celula.redes?.cor || "").toUpperCase().includes("BRANC") ? "#cbd5e1" : "transparent",
+                      }}
+                    />
+                    <span className="text-sm font-medium text-slate-800">{celula.nome}</span>
+                  </div>
+                  <span className="pl-[18px] text-xs text-slate-500">
+                    {celula.lider && <>{celula.lider} · </>}Sup: {celula.supervisores}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -563,19 +574,54 @@ export default function Dashboard() {
         {celulaSelecionada && (
           <div className="mt-4">
             {registrosDaCelulaSelecionada.length === 0 ? (
-              <div className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                <XCircle className="h-4 w-4 shrink-0 text-amber-500" />
-                <span>
-                  <strong>{celulaSelecionada.nome}</strong> não registrou entrega no período selecionado.
-                </span>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <div className="flex items-center gap-3">
+                  <XCircle className="h-4 w-4 shrink-0 text-amber-500" />
+                  <strong>{celulaSelecionada.nome}</strong>
+                  <span className="text-amber-700">não registrou entrega no período selecionado.</span>
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-3 pl-7 text-xs text-amber-700">
+                  {celulaSelecionada.lider && <span>Líderes: <strong>{celulaSelecionada.lider}</strong></span>}
+                  {celulaSelecionada.redes?.cor && (
+                    <span className="flex items-center gap-1">
+                      Rede:
+                      <span
+                        className="inline-block h-2.5 w-2.5 rounded-full border"
+                        style={{
+                          backgroundColor: getNetworkColor(celulaSelecionada.redes.cor),
+                          borderColor: celulaSelecionada.redes.cor.toUpperCase().includes("BRANC") ? "#cbd5e1" : "transparent",
+                        }}
+                      />
+                      <strong>{celulaSelecionada.redes.cor.toUpperCase()}</strong>
+                    </span>
+                  )}
+                  {celulaSelecionada.supervisores && <span>Sup: <strong>{celulaSelecionada.supervisores}</strong></span>}
+                </div>
               </div>
             ) : (
               <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
-                  <CheckCircle className="h-4 w-4 shrink-0" />
-                  <span>
-                    {celulaSelecionada.nome} — {registrosDaCelulaSelecionada.length} entrega(s) no período
-                  </span>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
+                    <CheckCircle className="h-4 w-4 shrink-0" />
+                    <span>{celulaSelecionada.nome} — {registrosDaCelulaSelecionada.length} entrega(s) no período</span>
+                  </div>
+                  <div className="flex flex-wrap gap-3 text-xs text-slate-500">
+                    {celulaSelecionada.lider && <span>Líderes: <strong className="text-slate-700">{celulaSelecionada.lider}</strong></span>}
+                    {celulaSelecionada.redes?.cor && (
+                      <span className="flex items-center gap-1">
+                        Rede:
+                        <span
+                          className="inline-block h-2.5 w-2.5 rounded-full border"
+                          style={{
+                            backgroundColor: getNetworkColor(celulaSelecionada.redes.cor),
+                            borderColor: celulaSelecionada.redes.cor.toUpperCase().includes("BRANC") ? "#cbd5e1" : "transparent",
+                          }}
+                        />
+                        <strong className="text-slate-700">{celulaSelecionada.redes.cor.toUpperCase()}</strong>
+                      </span>
+                    )}
+                    {celulaSelecionada.supervisores && <span>Sup: <strong className="text-slate-700">{celulaSelecionada.supervisores}</strong></span>}
+                  </div>
                 </div>
                 {registrosDaCelulaSelecionada.map((registro) => (
                   <div
