@@ -545,7 +545,7 @@ export default function Dashboard() {
           </div>
 
           {mostrarSugestoes && sugestoesCelulas.length > 0 && (
-            <ul className="absolute z-20 mt-1 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
+            <ul className="absolute z-[200] mt-1 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
               {sugestoesCelulas.map((celula) => (
                 <li
                   key={celula.id}
