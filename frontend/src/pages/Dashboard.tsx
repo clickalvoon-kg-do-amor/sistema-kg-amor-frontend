@@ -505,7 +505,7 @@ export default function Dashboard() {
       </div>
 
       {/* consulta por célula */}
-      <div className="toolbar-surface">
+      <div className="toolbar-surface relative z-10">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <span className="pill">
             <Search className="h-3.5 w-3.5" />
