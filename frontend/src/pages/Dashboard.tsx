@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Boxes, Download, Network, Users } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BarChart3, Boxes, CheckCircle, Download, Network, Pencil, Search, Users, X, XCircle } from "lucide-react";
 import * as XLSX from "xlsx";
+import toast from "react-hot-toast";
 import { supabase } from "../lib/supabaseClient";
 import { formatLocalDate, toUtcISOStringFromLocalDate } from "../utils/date";
 import { PageHeader, StatCard, Surface } from "../components/ui";
 
 type HistoricoComCelula = {
+  id: number;
   quantidade: number;
   quantidade_itens: number;
   data_chegada: string;
@@ -21,11 +23,26 @@ type HistoricoComCelula = {
   } | null;
 };
 
+type CelulaInfo = {
+  id: number;
+  nome: string;
+  lider?: string | null;
+  supervisores: string;
+  redes?: { cor: string | null } | null;
+};
+
 type Filtros = {
   rede: string;
   supervisao: string;
   dataIni: string;
   dataFim: string;
+};
+
+type FormEdicao = {
+  quantidade: string;
+  quantidade_itens: string;
+  observacoes: string;
+  data_chegada: string;
 };
 
 type RankingBoxProps = {
@@ -94,6 +111,7 @@ function RankingBox({ title, data, suffix = "" }: RankingBoxProps) {
 
 export default function Dashboard() {
   const [todoHistorico, setTodoHistorico] = useState<HistoricoComCelula[]>([]);
+  const [todasCelulas, setTodasCelulas] = useState<CelulaInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [redesDisponiveis, setRedesDisponiveis] = useState<string[]>([]);
   const [filtros, setFiltros] = useState<Filtros>(() => {
@@ -105,6 +123,33 @@ export default function Dashboard() {
       dataFim: formatLocalDate(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
     };
   });
+
+  // --- estados da consulta por célula ---
+  const [buscaCelula, setBuscaCelula] = useState("");
+  const [celulaSelecionada, setCelulaSelecionada] = useState<CelulaInfo | null>(null);
+  const [mostrarSugestoes, setMostrarSugestoes] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  // --- estados do modal de edição ---
+  const [editandoRegistro, setEditandoRegistro] = useState<HistoricoComCelula | null>(null);
+  const [formEdicao, setFormEdicao] = useState<FormEdicao>({
+    quantidade: "",
+    quantidade_itens: "",
+    observacoes: "",
+    data_chegada: "",
+  });
+  const [salvandoEdicao, setSalvandoEdicao] = useState(false);
+
+  // click-outside fecha o dropdown
+  useEffect(() => {
+    const handle = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setMostrarSugestoes(false);
+      }
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
 
   const opcoesRede = useMemo(() => {
     const set = new Set<string>(redesDisponiveis.map((rede) => rede.toUpperCase()));
@@ -127,7 +172,7 @@ export default function Dashboard() {
 
       let historicoQuery = supabase
         .from("historico_kg")
-        .select("celula_id, quantidade, quantidade_itens, data_chegada, observacoes");
+        .select("id, celula_id, quantidade, quantidade_itens, data_chegada, observacoes");
       if (inicio) historicoQuery = historicoQuery.gte("data_chegada", inicio);
       if (fim)    historicoQuery = historicoQuery.lte("data_chegada", fim);
 
@@ -137,7 +182,7 @@ export default function Dashboard() {
         { data: redesData },
       ] = await Promise.all([
         historicoQuery,
-        supabase.from("celulas").select("id, nome, lider, supervisores, redes(cor)"),
+        supabase.from("celulas").select("id, nome, lider, supervisores, redes(cor)").eq("ativo", true).order("nome"),
         supabase.from("redes").select("cor").eq("ativo", true),
       ]);
 
@@ -149,6 +194,7 @@ export default function Dashboard() {
           (celulasData || []).map((c: any) => [c.id, c])
         );
         const normalizados = (historicoData || []).map((registro: any) => ({
+          id: registro.id,
           quantidade: registro.quantidade,
           quantidade_itens: registro.quantidade_itens,
           data_chegada: getDateOnly(registro.data_chegada),
@@ -157,6 +203,8 @@ export default function Dashboard() {
         }));
         setTodoHistorico(normalizados as HistoricoComCelula[]);
       }
+
+      setTodasCelulas((celulasData || []) as CelulaInfo[]);
 
       const listaRedes = (redesData || [])
         .map((rede: { cor: string | null }) => (rede.cor || "").toUpperCase())
@@ -256,6 +304,110 @@ export default function Dashboard() {
     return mapa;
   }, [filtradas]);
 
+  // --- consulta por célula ---
+  const sugestoesCelulas = useMemo(() => {
+    if (!buscaCelula.trim() || celulaSelecionada) return [];
+    const termo = buscaCelula.toUpperCase().trim();
+    return todasCelulas.filter((c) => c.nome.toUpperCase().includes(termo)).slice(0, 8);
+  }, [buscaCelula, todasCelulas, celulaSelecionada]);
+
+  const registrosDaCelulaSelecionada = useMemo(() => {
+    if (!celulaSelecionada) return [];
+    return todoHistorico.filter((r) => r.celulas?.id === celulaSelecionada.id);
+  }, [celulaSelecionada, todoHistorico]);
+
+  const selecionarCelula = (celula: CelulaInfo) => {
+    setCelulaSelecionada(celula);
+    setBuscaCelula(celula.nome);
+    setMostrarSugestoes(false);
+  };
+
+  const limparBusca = () => {
+    setBuscaCelula("");
+    setCelulaSelecionada(null);
+    setMostrarSugestoes(false);
+  };
+
+  const abrirEdicao = (registro: HistoricoComCelula) => {
+    setEditandoRegistro(registro);
+    setFormEdicao({
+      quantidade: String(registro.quantidade),
+      quantidade_itens: String(registro.quantidade_itens || 0),
+      observacoes: registro.observacoes || "",
+      data_chegada: registro.data_chegada,
+    });
+  };
+
+  const salvarEdicao = async () => {
+    if (!editandoRegistro) return;
+    setSalvandoEdicao(true);
+
+    const quantidadeNova = parseFloat(formEdicao.quantidade.replace(",", "."));
+    const itensNovos = parseInt(formEdicao.quantidade_itens) || 0;
+
+    if (isNaN(quantidadeNova) || quantidadeNova < 0) {
+      toast.error("Quantidade inválida.");
+      setSalvandoEdicao(false);
+      return;
+    }
+
+    const { error: histError } = await supabase
+      .from("historico_kg")
+      .update({
+        quantidade: quantidadeNova,
+        quantidade_itens: itensNovos,
+        observacoes: formEdicao.observacoes || null,
+        data_chegada: toUtcISOStringFromLocalDate(formEdicao.data_chegada),
+      })
+      .eq("id", editandoRegistro.id);
+
+    if (histError) {
+      toast.error("Erro ao salvar alterações.");
+      setSalvandoEdicao(false);
+      return;
+    }
+
+    // atualiza o saldo acumulado da célula com o delta
+    const celulaId = editandoRegistro.celulas?.id;
+    if (celulaId) {
+      const deltaKg = quantidadeNova - (editandoRegistro.quantidade || 0);
+      const deltaItens = itensNovos - (editandoRegistro.quantidade_itens || 0);
+      if (deltaKg !== 0 || deltaItens !== 0) {
+        const { data: celulaAtual } = await supabase
+          .from("celulas")
+          .select("quantidade_kg, quantidade_itens")
+          .eq("id", celulaId)
+          .single();
+        if (celulaAtual) {
+          await supabase
+            .from("celulas")
+            .update({
+              quantidade_kg: (celulaAtual.quantidade_kg || 0) + deltaKg,
+              quantidade_itens: (celulaAtual.quantidade_itens || 0) + deltaItens,
+            })
+            .eq("id", celulaId);
+        }
+      }
+    }
+
+    toast.success("Recebimento atualizado.");
+    setTodoHistorico((prev) =>
+      prev.map((r) =>
+        r.id === editandoRegistro.id
+          ? {
+              ...r,
+              quantidade: quantidadeNova,
+              quantidade_itens: itensNovos,
+              observacoes: formEdicao.observacoes || null,
+              data_chegada: formEdicao.data_chegada,
+            }
+          : r
+      )
+    );
+    setEditandoRegistro(null);
+    setSalvandoEdicao(false);
+  };
+
   const handleExportExcel = () => {
     const dataSupervisao = topSupervisao.map(([Supervisao, KG]) => ({ Supervisao, KG }));
     const dataCelulas = topCelulas.map(([Celula, KG]) => ({ Celula, KG }));
@@ -307,6 +459,7 @@ export default function Dashboard() {
         }
       />
 
+      {/* filtros principais */}
       <div className="toolbar-surface">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <span className="pill">
@@ -351,6 +504,120 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* consulta por célula */}
+      <div className="toolbar-surface">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="pill">
+            <Search className="h-3.5 w-3.5" />
+            Consulta por célula
+          </span>
+          <span className="text-sm text-slate-500">
+            Verifique se uma célula registrou entrega no período selecionado.
+          </span>
+        </div>
+
+        <div ref={searchRef} className="relative max-w-sm">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Buscar célula pelo nome..."
+              value={buscaCelula}
+              style={{ paddingLeft: "2.25rem", paddingRight: buscaCelula ? "2.25rem" : undefined }}
+              onChange={(e) => {
+                setBuscaCelula(e.target.value);
+                setCelulaSelecionada(null);
+                setMostrarSugestoes(true);
+              }}
+              onFocus={() => {
+                if (buscaCelula && !celulaSelecionada) setMostrarSugestoes(true);
+              }}
+            />
+            {buscaCelula && (
+              <button
+                type="button"
+                onClick={limparBusca}
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-slate-400 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
+          {mostrarSugestoes && sugestoesCelulas.length > 0 && (
+            <ul className="absolute z-20 mt-1 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
+              {sugestoesCelulas.map((celula) => (
+                <li
+                  key={celula.id}
+                  onMouseDown={() => selecionarCelula(celula)}
+                  className="flex cursor-pointer flex-col gap-0.5 px-4 py-2.5 hover:bg-slate-50"
+                >
+                  <span className="text-sm font-medium text-slate-800">{celula.nome}</span>
+                  <span className="text-xs text-slate-500">{celula.supervisores}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {celulaSelecionada && (
+          <div className="mt-4">
+            {registrosDaCelulaSelecionada.length === 0 ? (
+              <div className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <XCircle className="h-4 w-4 shrink-0 text-amber-500" />
+                <span>
+                  <strong>{celulaSelecionada.nome}</strong> não registrou entrega no período selecionado.
+                </span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
+                  <CheckCircle className="h-4 w-4 shrink-0" />
+                  <span>
+                    {celulaSelecionada.nome} — {registrosDaCelulaSelecionada.length} entrega(s) no período
+                  </span>
+                </div>
+                {registrosDaCelulaSelecionada.map((registro) => (
+                  <div
+                    key={registro.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/60 px-4 py-3"
+                  >
+                    <div className="flex flex-wrap gap-4 text-sm text-slate-700">
+                      <span>
+                        <span className="text-slate-500">Data:</span>{" "}
+                        {registro.data_chegada}
+                      </span>
+                      <span>
+                        <span className="text-slate-500">Peso:</span>{" "}
+                        <strong>{formatPt(registro.quantidade)} kg</strong>
+                      </span>
+                      <span>
+                        <span className="text-slate-500">Itens:</span>{" "}
+                        <strong>{formatInt(registro.quantidade_itens || 0)}</strong>
+                      </span>
+                      {registro.observacoes && (
+                        <span>
+                          <span className="text-slate-500">Obs:</span> {registro.observacoes}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => abrirEdicao(registro)}
+                      className="flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      Editar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* stat cards */}
       <div className="stats-grid">
         <StatCard
           label="Celulas com doacoes"
@@ -513,6 +780,88 @@ export default function Dashboard() {
           )}
         </Surface>
       </div>
+
+      {/* modal de edição */}
+      {editandoRegistro && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-[28px] border bg-white p-6 shadow-2xl" style={{ borderColor: "var(--line)" }}>
+            <div className="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Editar recebimento</h2>
+                <p className="mt-0.5 text-sm text-slate-500">{editandoRegistro.celulas?.nome}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditandoRegistro(null)}
+                className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-700">Quantidade (kg)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={formEdicao.quantidade}
+                    onChange={(e) => setFormEdicao((prev) => ({ ...prev, quantidade: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-slate-700">Itens</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formEdicao.quantidade_itens}
+                    onChange={(e) => setFormEdicao((prev) => ({ ...prev, quantidade_itens: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-slate-700">Data</label>
+                <input
+                  type="date"
+                  value={formEdicao.data_chegada}
+                  onChange={(e) => setFormEdicao((prev) => ({ ...prev, data_chegada: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-slate-700">Observações</label>
+                <textarea
+                  value={formEdicao.observacoes}
+                  onChange={(e) => setFormEdicao((prev) => ({ ...prev, observacoes: e.target.value }))}
+                  placeholder="Observações opcionais"
+                  style={{ minHeight: "80px" }}
+                />
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setEditandoRegistro(null)}
+                  className="button-base button-secondary flex-1"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={salvarEdicao}
+                  disabled={salvandoEdicao}
+                  className="button-base button-primary flex-1"
+                >
+                  {salvandoEdicao ? "Salvando..." : "Salvar alterações"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
